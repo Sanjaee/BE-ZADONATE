@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -41,8 +42,9 @@ type DonationMessage struct {
 	Message    string `json:"message,omitempty"`
 	MediaURL   string `json:"mediaUrl,omitempty"`
 	MediaType  string `json:"mediaType,omitempty"` // "image", "video", "youtube", "instagram", or "tiktok"
+	StartTime  int    `json:"startTime,omitempty"` // Start time in seconds for YouTube videos (legacy)
 	Visible    bool   `json:"visible,omitempty"`
-	TargetTime string `json:"targetTime,omitempty"` // For time countdown: "YYYY-MM-DDTHH:mm:ss"
+	TargetTime string `json:"targetTime,omitempty"` // For time countdown: "YYYY-MM-DDTHH:mm:ss" OR for YouTube start time: seconds (as string or int)
 }
 
 var hub = &Hub{
@@ -173,11 +175,14 @@ func BroadcastDonation(donorName string, amount int, message string) {
 }
 
 // BroadcastMedia sends a media update to all connected clients (auto-visible)
-func BroadcastMedia(mediaURL, mediaType string) {
+func BroadcastMedia(mediaURL, mediaType string, startTime int) {
 	msg := DonationMessage{
 		Type:      "media",
 		MediaURL:  mediaURL,
 		MediaType: mediaType,
+		StartTime: startTime,
+		// Also send as targetTime string for frontend compatibility
+		TargetTime: strconv.Itoa(startTime),
 	}
 
 	data, err := json.Marshal(msg)
@@ -187,7 +192,7 @@ func BroadcastMedia(mediaURL, mediaType string) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted media: %s (%s)", mediaURL, mediaType)
+	log.Printf("Broadcasted media: %s (%s) startTime: %d", mediaURL, mediaType, startTime)
 }
 
 // BroadcastVisibility sends a visibility update to all connected clients

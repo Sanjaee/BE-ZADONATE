@@ -30,14 +30,14 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"imageUrl\": \"https://www.youtube.com/watch?v=pwHOWj0PAD8&list=RDa6Fl1Xl1ogg&index=13\",\n  \"donorName\": \"Someguy\",\n  \"amount\": 1420,\n  \"message\": \"max tesk message donate saweria max tesk message donate saweria max tesk message donate saweria max tesk message donate saweria max tesk message donate saweria max tesk message donate saweria\"\n}"
+					"raw": "{\n  \"imageUrl\": \"https://youtu.be/Z0cw1579gdY?si=BLQ01YzztKHieoX2\",\n  \"donorName\": \"Someguy\",\n  \"startTime\": 45,\n  \"amount\": 1420,\n  \"message\": \"max tesk message dona\"\n}"
 				},
 				"url": {
 					"raw": "{{base_url}}/hit/gif",
 					"host": ["{{base_url}}"],
 					"path": ["hit", "gif"]
 				},
-				"description": "Trigger donation notification with image/video. Auto-detects media type from URL (image/video/YouTube/Instagram Reels/TikTok). Supports both 'imageUrl' (legacy) and 'mediaUrl'. Amount is integer (1000 = 10 seconds display time). Message max 160 characters. Automatically shows overlay, sets media, and displays donation message in realtime.\n\nSupported platforms:\n- YouTube: https://www.youtube.com/watch?v=VIDEO_ID\n- Instagram Reels: https://www.instagram.com/reel/REEL_ID/\n- TikTok: https://www.tiktok.com/@username/video/VIDEO_ID\n- Direct video/image URLs"
+				"description": "Trigger donation notification with image/video. Auto-detects media type from URL (image/video/YouTube/Instagram Reels/TikTok). Supports both 'imageUrl' (legacy) and 'mediaUrl'. Amount is integer (1000 = 10 seconds display time). Message max 160 characters. startTime (optional, in MINUTES) sets start time for YouTube videos - will be converted to seconds (e.g., startTime: 45 = 45 minutes = 2700 seconds). Also supports 'targetTime' field (can be string or int, in minutes). Default: 0. Automatically shows overlay, sets media, and displays donation message in realtime.\n\nSupported platforms:\n- YouTube: https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID (supports startTime/targetTime in minutes)\n- Instagram Reels: https://www.instagram.com/reel/REEL_ID/\n- TikTok: https://www.tiktok.com/@username/video/VIDEO_ID\n- Direct video/image URLs"
 			}
 		},
 		{

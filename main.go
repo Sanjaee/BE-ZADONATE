@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,11 +75,13 @@ func main() {
 	// HIT GIF - Trigger donation with image/video (realtime)
 	r.POST("/hit/gif", func(c *gin.Context) {
 		var req struct {
-			ImageURL  string `json:"imageUrl,omitempty"` // Image/Video URL (legacy support)
-			MediaURL  string `json:"mediaUrl,omitempty"` // Image/Video URL
-			DonorName string `json:"donorName"`          // Donor name
-			Amount    int    `json:"amount"`             // Donation amount (integer)
-			Message   string `json:"message,omitempty"`
+			ImageURL   string      `json:"imageUrl,omitempty"` // Image/Video URL (legacy support)
+			MediaURL   string      `json:"mediaUrl,omitempty"` // Image/Video URL
+			DonorName  string      `json:"donorName"`          // Donor name
+			Amount     int         `json:"amount"`             // Donation amount (integer)
+			Message    string      `json:"message,omitempty"`
+			StartTime  int         `json:"startTime,omitempty"`  // Start time in MINUTES for YouTube videos (legacy)
+			TargetTime interface{} `json:"targetTime,omitempty"` // Start time in MINUTES for YouTube videos (can be string or int)
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -115,16 +118,47 @@ func main() {
 		// Auto-detect media type from URL
 		mediaType := detectMediaType(mediaURL)
 
-		// Broadcast media (will auto-show)
-		BroadcastMedia(mediaURL, mediaType)
+		// Parse targetTime (can be string or int) - prioritize targetTime over startTime
+		// Note: startTime is in MINUTES, will be converted to seconds for YouTube
+		var startTimeMinutes int
+		if req.TargetTime != nil {
+			switch v := req.TargetTime.(type) {
+			case string:
+				// Try to parse string as int (minutes)
+				if parsed, err := strconv.Atoi(v); err == nil {
+					startTimeMinutes = parsed
+				}
+			case float64:
+				// JSON numbers come as float64 (minutes)
+				startTimeMinutes = int(v)
+			case int:
+				startTimeMinutes = v
+			}
+		} else if req.StartTime > 0 {
+			// Fallback to legacy startTime (in minutes)
+			startTimeMinutes = req.StartTime
+		}
+
+		// Validate startTimeMinutes (must be >= 0)
+		if startTimeMinutes < 0 {
+			startTimeMinutes = 0
+		}
+
+		// Convert minutes to seconds for YouTube API
+		startTimeSeconds := startTimeMinutes * 60
+
+		// Broadcast media (will auto-show) - send seconds to frontend
+		BroadcastMedia(mediaURL, mediaType, startTimeSeconds)
 
 		// Broadcast donation message (will auto-show)
 		BroadcastDonation(req.DonorName, req.Amount, req.Message)
 
 		c.JSON(200, gin.H{
-			"success":   true,
-			"message":   "Donation notification broadcasted",
-			"mediaType": mediaType,
+			"success":          true,
+			"message":          "Donation notification broadcasted",
+			"mediaType":        mediaType,
+			"startTimeMinutes": startTimeMinutes,
+			"startTimeSeconds": startTimeSeconds,
 		})
 	})
 
