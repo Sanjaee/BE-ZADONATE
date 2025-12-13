@@ -9,13 +9,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// detectMediaType detects if URL is video, image, or YouTube based on URL
+// detectMediaType detects if URL is video, image, YouTube, Instagram Reels, or TikTok based on URL
 func detectMediaType(url string) string {
 	urlLower := strings.ToLower(url)
 
 	// Check for YouTube
 	if strings.Contains(urlLower, "youtube.com") || strings.Contains(urlLower, "youtu.be") {
 		return "youtube"
+	}
+
+	// Check for Instagram Reels
+	if strings.Contains(urlLower, "instagram.com/reel/") || strings.Contains(urlLower, "instagram.com/p/") {
+		return "instagram"
+	}
+
+	// Check for TikTok
+	if strings.Contains(urlLower, "tiktok.com") {
+		return "tiktok"
 	}
 
 	// Video extensions
@@ -164,6 +174,48 @@ func main() {
 			"success":    true,
 			"message":    "Time countdown target broadcasted",
 			"targetTime": req.TargetTime,
+		})
+	})
+
+	// HIT TEXT - Trigger text-only donation alert with TTS (realtime)
+	r.POST("/hit/text", func(c *gin.Context) {
+		var req struct {
+			DonorName string `json:"donorName"` // Donor name
+			Amount    int    `json:"amount"`    // Donation amount (integer)
+			Message   string `json:"message,omitempty"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Invalid request body",
+			})
+			return
+		}
+
+		if req.DonorName == "" || req.Amount <= 0 {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "donorName and amount (positive integer) are required",
+			})
+			return
+		}
+
+		// Validate message max 160 characters
+		if len(req.Message) > 160 {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "message must be maximum 160 characters",
+			})
+			return
+		}
+
+		// Broadcast text message (will auto-show with TTS)
+		BroadcastText(req.DonorName, req.Amount, req.Message)
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Text donation notification broadcasted",
 		})
 	})
 

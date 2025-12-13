@@ -35,12 +35,12 @@ type Client struct {
 
 // DonationMessage represents a donation notification
 type DonationMessage struct {
-	Type       string `json:"type"` // "donation", "media", "visibility", "time", "gif"
+	Type       string `json:"type"` // "donation", "media", "visibility", "time", "gif", "text"
 	DonorName  string `json:"donorName,omitempty"`
 	Amount     int    `json:"amount,omitempty"` // Integer amount
 	Message    string `json:"message,omitempty"`
 	MediaURL   string `json:"mediaUrl,omitempty"`
-	MediaType  string `json:"mediaType,omitempty"` // "image", "video", or "youtube"
+	MediaType  string `json:"mediaType,omitempty"` // "image", "video", "youtube", "instagram", or "tiktok"
 	Visible    bool   `json:"visible,omitempty"`
 	TargetTime string `json:"targetTime,omitempty"` // For time countdown: "YYYY-MM-DDTHH:mm:ss"
 }
@@ -222,4 +222,23 @@ func BroadcastTime(targetTime string) {
 
 	hub.broadcast <- data
 	log.Printf("Broadcasted time target: %s", targetTime)
+}
+
+// BroadcastText sends a text-only donation message to all connected clients
+func BroadcastText(donorName string, amount int, message string) {
+	msg := DonationMessage{
+		Type:      "text",
+		DonorName: donorName,
+		Amount:    amount,
+		Message:   message,
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Error marshaling text message: %v", err)
+		return
+	}
+
+	hub.broadcast <- data
+	log.Printf("Broadcasted text: %s - %d", donorName, amount)
 }

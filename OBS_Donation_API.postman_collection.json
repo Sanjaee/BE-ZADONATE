@@ -37,7 +37,7 @@
 					"host": ["{{base_url}}"],
 					"path": ["hit", "gif"]
 				},
-				"description": "Trigger donation notification with image/video. Auto-detects media type from URL (image/video/YouTube). Supports both 'imageUrl' (legacy) and 'mediaUrl'. Amount is integer (1000 = 10 seconds display time). Message max 160 characters. Automatically shows overlay, sets media, and displays donation message in realtime."
+				"description": "Trigger donation notification with image/video. Auto-detects media type from URL (image/video/YouTube/Instagram Reels/TikTok). Supports both 'imageUrl' (legacy) and 'mediaUrl'. Amount is integer (1000 = 10 seconds display time). Message max 160 characters. Automatically shows overlay, sets media, and displays donation message in realtime.\n\nSupported platforms:\n- YouTube: https://www.youtube.com/watch?v=VIDEO_ID\n- Instagram Reels: https://www.instagram.com/reel/REEL_ID/\n- TikTok: https://www.tiktok.com/@username/video/VIDEO_ID\n- Direct video/image URLs"
 			}
 		},
 		{
@@ -60,6 +60,28 @@
 					"path": ["hit", "time"]
 				},
 				"description": "Set countdown timer target. Format: YYYY-MM-DDTHH:mm:ss or YYYY-MM-DD HH:mm:ss. Automatically shows countdown in realtime."
+			}
+		},
+		{
+			"name": "Hit Text",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"donorName\": \"Someguy\",\n  \"amount\": 1420,\n  \"message\": \"Terima kasih atas donasinya!\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/hit/text",
+					"host": ["{{base_url}}"],
+					"path": ["hit", "text"]
+				},
+				"description": "Trigger text-only donation alert with TTS (Text-to-Speech). Amount is integer (1000 = 10 seconds display time). Message max 160 characters. Automatically shows text alert and speaks the donation message in realtime."
 			}
 		}
 	],
