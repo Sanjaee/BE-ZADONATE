@@ -1,0 +1,32 @@
+services:
+  obs-hit-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: obs-hit-api
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - GIN_MODE=release
+      # OBS connection settings
+      # For Windows/Mac: use host.docker.internal
+      # For Linux: use host network mode or actual host IP
+      # If connection fails, try:
+      # - Windows: host.docker.internal:4455 or your actual host IP
+      # - Mac: host.docker.internal:4455
+      # - Linux: Use host network mode (network_mode: "host") or your host IP
+      # Try changing to: 192.168.1.3:4455 or localhost:4455 if host.docker.internal doesn't work
+      - OBS_HOST=localhost:4455
+      # OBS Password - set empty string "" or remove this line if OBS doesn't use password
+      # Set OBS_NO_PASSWORD=true to try connection without password
+      - OBS_PASSWORD=hb6ljK5cCK4MPv4Z
+      # - OBS_NO_PASSWORD=true  # Uncomment this if OBS WebSocket doesn't use password
+    restart: unless-stopped
+    networks:
+      - obs-network
+
+networks:
+  obs-network:
+    driver: bridge
+

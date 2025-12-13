@@ -1,0 +1,73 @@
+{
+	"info": {
+		"_postman_id": "donation-api-collection",
+		"name": "Donation API",
+		"description": "API collection for Donation System with WebSocket support",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/health",
+					"host": ["{{base_url}}"],
+					"path": ["health"]
+				}
+			}
+		},
+		{
+			"name": "Hit GIF",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"imageUrl\": \"https://www.youtube.com/watch?v=pwHOWj0PAD8&list=RDa6Fl1Xl1ogg&index=13\",\n  \"donorName\": \"Someguy\",\n  \"amount\": 1420,\n  \"message\": \"max tesk message donate saweria max tesk message donate saweria max tesk message donate saweria max tesk message donate saweria max tesk message donate saweria max tesk message donate saweria\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/hit/gif",
+					"host": ["{{base_url}}"],
+					"path": ["hit", "gif"]
+				},
+				"description": "Trigger donation notification with image/video. Auto-detects media type from URL (image/video/YouTube). Supports both 'imageUrl' (legacy) and 'mediaUrl'. Amount is integer (1000 = 10 seconds display time). Message max 160 characters. Automatically shows overlay, sets media, and displays donation message in realtime."
+			}
+		},
+		{
+			"name": "Hit Time",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"targetTime\": \"2025-12-31T23:59:59\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/hit/time",
+					"host": ["{{base_url}}"],
+					"path": ["hit", "time"]
+				},
+				"description": "Set countdown timer target. Format: YYYY-MM-DDTHH:mm:ss or YYYY-MM-DD HH:mm:ss. Automatically shows countdown in realtime."
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8080",
+			"type": "string"
+		}
+	]
+}

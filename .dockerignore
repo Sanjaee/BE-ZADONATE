@@ -1,0 +1,8 @@
+*.md
+.git
+.gitignore
+OBS_Hit_API.postman_collection.json
+.dockerignore
+Dockerfile
+docker-compose.yml
+
