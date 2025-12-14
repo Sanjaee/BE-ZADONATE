@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // detectMediaType detects if URL is video, image, YouTube, Instagram Reels, or TikTok based on URL
@@ -50,6 +51,14 @@ func detectMediaType(url string) string {
 }
 
 func main() {
+	// Initialize RabbitMQ
+	if err := InitRabbitMQ(); err != nil {
+		log.Printf("⚠️  Warning: RabbitMQ initialization failed: %v. Donations will be processed directly.", err)
+	} else {
+		// Start donation worker to process queue sequentially
+		StartDonationWorker()
+	}
+
 	// Start WebSocket hub
 	go hub.run()
 
@@ -147,15 +156,34 @@ func main() {
 		// Convert minutes to seconds for YouTube API
 		startTimeSeconds := startTimeMinutes * 60
 
-		// Broadcast media (will auto-show) - send seconds to frontend
-		BroadcastMedia(mediaURL, mediaType, startTimeSeconds)
+		// Publish to RabbitMQ queue instead of direct broadcast
+		job := DonationJob{
+			Type:      "gif",
+			MediaURL:  mediaURL,
+			MediaType: mediaType,
+			StartTime: startTimeSeconds,
+			DonorName: req.DonorName,
+			Amount:    req.Amount,
+			Message:   req.Message,
+		}
 
-		// Broadcast donation message (will auto-show)
-		BroadcastDonation(req.DonorName, req.Amount, req.Message)
+		if err := PublishDonation(job); err != nil {
+			// Fallback to direct broadcast if RabbitMQ fails
+			log.Printf("⚠️  RabbitMQ publish failed, using direct broadcast: %v", err)
+			donationID := uuid.New().String()
+			// Calculate duration for fallback
+			durationMs := int((float64(req.Amount) / 1000.0 * 10.0) * 1000)
+			if durationMs < 10000 {
+				durationMs = 10000
+			}
+			BroadcastMedia(donationID, mediaURL, mediaType, startTimeSeconds)
+			time.Sleep(500 * time.Millisecond)
+			BroadcastDonation(donationID, req.DonorName, req.Amount, req.Message, durationMs)
+		}
 
 		c.JSON(200, gin.H{
 			"success":          true,
-			"message":          "Donation notification broadcasted",
+			"message":          "Donation queued for processing",
 			"mediaType":        mediaType,
 			"startTimeMinutes": startTimeMinutes,
 			"startTimeSeconds": startTimeSeconds,
@@ -211,6 +239,82 @@ func main() {
 		})
 	})
 
+	// HIT PAUSE - Pause the currently processing donation
+	r.POST("/hit/pause", func(c *gin.Context) {
+		success := PauseDonation()
+		if !success {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "No donation currently processing or already paused",
+			})
+			return
+		}
+
+		isPaused, donation := GetCurrentDonationStatus()
+		c.JSON(200, gin.H{
+			"success":  true,
+			"message":  "Donation paused",
+			"isPaused": isPaused,
+			"donation": donation,
+		})
+	})
+
+	// HIT RESUME - Resume the paused donation
+	r.POST("/hit/resume", func(c *gin.Context) {
+		success := ResumeDonation()
+		if !success {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "No donation currently processing or not paused",
+			})
+			return
+		}
+
+		isPaused, donation := GetCurrentDonationStatus()
+		c.JSON(200, gin.H{
+			"success":  true,
+			"message":  "Donation resumed",
+			"isPaused": isPaused,
+			"donation": donation,
+		})
+	})
+
+	// HIT STATUS - Get current donation status
+	r.GET("/hit/status", func(c *gin.Context) {
+		isPaused, donation := GetCurrentDonationStatus()
+		if donation == nil {
+			c.JSON(200, gin.H{
+				"success":  true,
+				"message":  "No donation currently processing",
+				"isPaused": false,
+				"donation": nil,
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success":  true,
+			"isPaused": isPaused,
+			"donation": donation,
+		})
+	})
+
+	// HIT RESET - Clear all queues and reset state
+	r.POST("/hit/reset", func(c *gin.Context) {
+		if err := ClearAllQueuesAndReset(); err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to clear queues and reset: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "All queues cleared and state reset",
+		})
+	})
+
 	// HIT TEXT - Trigger text-only donation alert with TTS (realtime)
 	r.POST("/hit/text", func(c *gin.Context) {
 		var req struct {
@@ -244,12 +348,29 @@ func main() {
 			return
 		}
 
-		// Broadcast text message (will auto-show with TTS)
-		BroadcastText(req.DonorName, req.Amount, req.Message)
+		// Publish to RabbitMQ queue instead of direct broadcast
+		job := DonationJob{
+			Type:      "text",
+			DonorName: req.DonorName,
+			Amount:    req.Amount,
+			Message:   req.Message,
+		}
+
+		if err := PublishDonation(job); err != nil {
+			// Fallback to direct broadcast if RabbitMQ fails
+			log.Printf("⚠️  RabbitMQ publish failed, using direct broadcast: %v", err)
+			donationID := uuid.New().String()
+			// Calculate duration for fallback
+			durationMs := int((float64(req.Amount) / 1000.0 * 10.0) * 1000)
+			if durationMs < 10000 {
+				durationMs = 10000
+			}
+			BroadcastText(donationID, req.DonorName, req.Amount, req.Message, durationMs)
+		}
 
 		c.JSON(200, gin.H{
 			"success": true,
-			"message": "Text donation notification broadcasted",
+			"message": "Text donation queued for processing",
 		})
 	})
 
@@ -264,6 +385,11 @@ func main() {
 	log.Println("🎯 Hit Endpoints:")
 	log.Println("   POST /hit/gif")
 	log.Println("   POST /hit/time")
+	log.Println("   POST /hit/text")
+	log.Println("   POST /hit/pause")
+	log.Println("   POST /hit/resume")
+	log.Println("   GET  /hit/status")
+	log.Println("   POST /hit/reset")
 
 	r.Run(":" + port)
 }

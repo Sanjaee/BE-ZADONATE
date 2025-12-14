@@ -36,13 +36,15 @@ type Client struct {
 
 // DonationMessage represents a donation notification
 type DonationMessage struct {
-	Type       string `json:"type"` // "donation", "media", "visibility", "time", "gif", "text"
+	ID         string `json:"id,omitempty"` // UUID for tracking this donation
+	Type       string `json:"type"`         // "donation", "media", "visibility", "time", "gif", "text"
 	DonorName  string `json:"donorName,omitempty"`
 	Amount     int    `json:"amount,omitempty"` // Integer amount
 	Message    string `json:"message,omitempty"`
 	MediaURL   string `json:"mediaUrl,omitempty"`
 	MediaType  string `json:"mediaType,omitempty"` // "image", "video", "youtube", "instagram", or "tiktok"
 	StartTime  int    `json:"startTime,omitempty"` // Start time in seconds for YouTube videos (legacy)
+	Duration   int    `json:"duration,omitempty"`  // Display duration in milliseconds
 	Visible    bool   `json:"visible,omitempty"`
 	TargetTime string `json:"targetTime,omitempty"` // For time countdown: "YYYY-MM-DDTHH:mm:ss" OR for YouTube start time: seconds (as string or int)
 }
@@ -62,7 +64,7 @@ func (h *Hub) run() {
 			h.clients[client] = true
 			count := len(h.clients)
 			h.mu.Unlock()
-			log.Printf("Client connected. Total clients: %d", count)
+			log.Printf("✅ WebSocket client connected. Total clients: %d", count)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -72,7 +74,7 @@ func (h *Hub) run() {
 			}
 			count := len(h.clients)
 			h.mu.Unlock()
-			log.Printf("Client disconnected. Total clients: %d", count)
+			log.Printf("🔌 WebSocket client disconnected. Total clients: %d", count)
 
 		case message := <-h.broadcast:
 			h.mu.RLock()
@@ -82,10 +84,19 @@ func (h *Hub) run() {
 			}
 			h.mu.RUnlock()
 
+			if len(clients) == 0 {
+				log.Printf("⚠️  No WebSocket clients connected to receive message")
+			} else {
+				log.Printf("📤 Broadcasting message to %d client(s)", len(clients))
+			}
+
 			for _, client := range clients {
 				select {
 				case client.send <- message:
+					// Message sent successfully
 				default:
+					// Client send channel is full or closed
+					log.Printf("⚠️  WebSocket client send channel full, removing client")
 					h.mu.Lock()
 					close(client.send)
 					delete(h.clients, client)
@@ -116,7 +127,11 @@ func (c *Client) readPump() {
 
 // writePump pumps messages from the hub to the websocket connection
 func (c *Client) writePump() {
-	defer c.conn.Close()
+	ticker := time.NewTicker(54 * time.Second)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
 
 	for {
 		select {
@@ -129,6 +144,14 @@ func (c *Client) writePump() {
 
 			// Send each message separately
 			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				log.Printf("WebSocket write error: %v", err)
+				return
+			}
+		case <-ticker.C:
+			// Send ping to keep connection alive
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("WebSocket ping error: %v", err)
 				return
 			}
 		}
@@ -156,12 +179,14 @@ func ServeWS(c *gin.Context) {
 }
 
 // BroadcastDonation sends a donation message to all connected clients (auto-visible)
-func BroadcastDonation(donorName string, amount int, message string) {
+func BroadcastDonation(id, donorName string, amount int, message string, durationMs int) {
 	msg := DonationMessage{
+		ID:        id,
 		Type:      "donation",
 		DonorName: donorName,
 		Amount:    amount,
 		Message:   message,
+		Duration:  durationMs,
 	}
 
 	data, err := json.Marshal(msg)
@@ -171,12 +196,13 @@ func BroadcastDonation(donorName string, amount int, message string) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted donation: %s - %d", donorName, amount)
+	log.Printf("Broadcasted donation: %s - %d (ID: %s, duration: %dms)", donorName, amount, id, durationMs)
 }
 
 // BroadcastMedia sends a media update to all connected clients (auto-visible)
-func BroadcastMedia(mediaURL, mediaType string, startTime int) {
+func BroadcastMedia(id, mediaURL, mediaType string, startTime int) {
 	msg := DonationMessage{
+		ID:        id,
 		Type:      "media",
 		MediaURL:  mediaURL,
 		MediaType: mediaType,
@@ -192,12 +218,13 @@ func BroadcastMedia(mediaURL, mediaType string, startTime int) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted media: %s (%s) startTime: %d", mediaURL, mediaType, startTime)
+	log.Printf("Broadcasted media: %s (%s) startTime: %d (ID: %s)", mediaURL, mediaType, startTime, id)
 }
 
 // BroadcastVisibility sends a visibility update to all connected clients
-func BroadcastVisibility(visible bool) {
+func BroadcastVisibility(id string, visible bool) {
 	msg := DonationMessage{
+		ID:      id,
 		Type:    "visibility",
 		Visible: visible,
 	}
@@ -209,7 +236,7 @@ func BroadcastVisibility(visible bool) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted visibility: %v", visible)
+	log.Printf("Broadcasted visibility: %v (ID: %s)", visible, id)
 }
 
 // BroadcastTime sends a time countdown target to all connected clients
@@ -230,12 +257,14 @@ func BroadcastTime(targetTime string) {
 }
 
 // BroadcastText sends a text-only donation message to all connected clients
-func BroadcastText(donorName string, amount int, message string) {
+func BroadcastText(id, donorName string, amount int, message string, durationMs int) {
 	msg := DonationMessage{
+		ID:        id,
 		Type:      "text",
 		DonorName: donorName,
 		Amount:    amount,
 		Message:   message,
+		Duration:  durationMs,
 	}
 
 	data, err := json.Marshal(msg)
@@ -245,5 +274,5 @@ func BroadcastText(donorName string, amount int, message string) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted text: %s - %d", donorName, amount)
+	log.Printf("Broadcasted text: %s - %d (ID: %s, duration: %dms)", donorName, amount, id, durationMs)
 }

@@ -1,4 +1,24 @@
 services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: obs-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+    networks:
+      - obs-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
   obs-hit-api:
     build:
       context: .
@@ -9,6 +29,8 @@ services:
     environment:
       - PORT=8080
       - GIN_MODE=release
+      # RabbitMQ connection
+      - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672/
       # OBS connection settings
       # For Windows/Mac: use host.docker.internal
       # For Linux: use host network mode or actual host IP
@@ -23,8 +45,14 @@ services:
       - OBS_PASSWORD=hb6ljK5cCK4MPv4Z
       # - OBS_NO_PASSWORD=true  # Uncomment this if OBS WebSocket doesn't use password
     restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     networks:
       - obs-network
+
+volumes:
+  rabbitmq_data:
 
 networks:
   obs-network:

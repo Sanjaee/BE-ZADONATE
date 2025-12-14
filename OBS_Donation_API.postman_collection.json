@@ -83,6 +83,73 @@
 				},
 				"description": "Trigger text-only donation alert with TTS (Text-to-Speech). Amount is integer (1000 = 10 seconds display time). Message max 160 characters. Automatically shows text alert and speaks the donation message in realtime."
 			}
+		},
+		{
+			"name": "Hit Pause",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/hit/pause",
+					"host": ["{{base_url}}"],
+					"path": ["hit", "pause"]
+				},
+				"description": "Pause the currently processing donation. Hides the donation display and pauses the timer. The donation will remain in queue and can be resumed later. Returns error if no donation is currently processing or already paused."
+			}
+		},
+		{
+			"name": "Hit Resume",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/hit/resume",
+					"host": ["{{base_url}}"],
+					"path": ["hit", "resume"]
+				},
+				"description": "Resume a paused donation. Shows the donation display again and continues the timer from where it was paused. Returns error if no donation is currently processing or not paused."
+			}
+		},
+		{
+			"name": "Hit Status",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/hit/status",
+					"host": ["{{base_url}}"],
+					"path": ["hit", "status"]
+				},
+				"description": "Get the current donation status. Returns information about the currently processing donation including whether it's paused, donor name, amount, and message. Returns null if no donation is currently processing."
+			}
+		},
+		{
+			"name": "Hit Reset",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/hit/reset",
+					"host": ["{{base_url}}"],
+					"path": ["hit", "reset"]
+				},
+				"description": "Clear all donation queues and reset state. This will:\n- Remove all pending donations from RabbitMQ queue\n- Reset current donation state\n- Reset pause state\n\nNote: This does not stop the currently processing donation. Use pause first if you want to stop it before resetting."
+			}
 		}
 	],
 	"variable": [
