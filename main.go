@@ -339,11 +339,11 @@ func main() {
 			return
 		}
 
-		// Validate message max 160 characters
-		if len(req.Message) > 160 {
+		// Validate message max 250 characters (only for text donations)
+		if len(req.Message) > 250 {
 			c.JSON(400, gin.H{
 				"success": false,
-				"error":   "message must be maximum 160 characters",
+				"error":   "message must be maximum 250 characters",
 			})
 			return
 		}
