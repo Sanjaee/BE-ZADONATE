@@ -37,7 +37,7 @@ type Client struct {
 // DonationMessage represents a donation notification
 type DonationMessage struct {
 	ID         string `json:"id,omitempty"` // UUID for tracking this donation
-	Type       string `json:"type"`         // "donation", "media", "visibility", "time", "gif", "text", "history"
+	Type       string `json:"type"`         // "donation", "media", "visibility", "time", "gif", "text", "history", "payment_status"
 	DonorName  string `json:"donorName,omitempty"`
 	Amount     int    `json:"amount,omitempty"` // Integer amount
 	Message    string `json:"message,omitempty"`
@@ -48,6 +48,15 @@ type DonationMessage struct {
 	Visible    bool   `json:"visible,omitempty"`
 	TargetTime string `json:"targetTime,omitempty"` // For time countdown: "YYYY-MM-DDTHH:mm:ss" OR for YouTube start time: seconds (as string or int)
 	CreatedAt  string `json:"createdAt,omitempty"`  // For history: creation timestamp
+	// Payment status fields
+	PaymentID    string `json:"paymentId,omitempty"`
+	OrderID      string `json:"orderId,omitempty"`
+	Status       string `json:"status,omitempty"` // PENDING, SUCCESS, FAILED, etc
+	VANumber     string `json:"vaNumber,omitempty"`
+	BankType     string `json:"bankType,omitempty"`
+	QRCodeURL    string `json:"qrCodeUrl,omitempty"`
+	ExpiryTime   string `json:"expiryTime,omitempty"`
+	DonationType string `json:"donationType,omitempty"`
 }
 
 var hub = &Hub{
@@ -279,6 +288,39 @@ func BroadcastHistory(history *DonationHistory) {
 
 	hub.broadcast <- data
 	log.Printf("📤 Broadcasted history: %s - %s - Rp%d", history.ID, history.DonorName, history.Amount)
+}
+
+// BroadcastPaymentStatus sends payment status update to all connected clients
+func BroadcastPaymentStatus(payment *Payment) {
+	message := DonationMessage{
+		Type:         "payment_status",
+		PaymentID:    payment.ID,
+		OrderID:      payment.OrderID,
+		Status:       string(payment.Status),
+		VANumber:     payment.VANumber,
+		BankType:     payment.BankType,
+		QRCodeURL:    payment.QRCodeURL,
+		DonorName:    payment.DonorName,
+		Amount:       payment.Amount,
+		DonationType: payment.DonationType,
+		Message:      payment.Message,
+		MediaURL:     payment.MediaURL,
+		MediaType:    payment.MediaType,
+		StartTime:    payment.StartTime,
+	}
+
+	if payment.ExpiryTime != nil {
+		message.ExpiryTime = payment.ExpiryTime.Format(time.RFC3339)
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Error marshaling payment status message: %v", err)
+		return
+	}
+
+	hub.broadcast <- data
+	log.Printf("📤 Broadcasted payment status: %s - %s - %s", payment.OrderID, payment.DonorName, payment.Status)
 }
 
 // BroadcastText sends a text-only donation message to all connected clients

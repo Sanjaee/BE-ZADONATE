@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 	"strconv"
@@ -431,6 +432,216 @@ func main() {
 		})
 	})
 
+	// PAYMENT ENDPOINTS
+	// Create payment
+	r.POST("/payment/create", func(c *gin.Context) {
+		var req CreatePaymentRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Invalid request: " + err.Error(),
+			})
+			return
+		}
+
+		payment, err := CreatePayment(req)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to create payment: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"data":    payment,
+		})
+	})
+
+	// Debug endpoint to list all payments (remove in production)
+	r.GET("/payment/debug/list", func(c *gin.Context) {
+		var payments []Payment
+		err := db.Find(&payments).Error
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		// Also get raw data to see actual database values
+		var rawPayments []map[string]interface{}
+		db.Raw("SELECT id, order_id, donor_name, amount, status FROM payments ORDER BY created_at DESC LIMIT 10").Scan(&rawPayments)
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"count":   len(payments),
+			"data":    payments,
+			"raw":     rawPayments,
+		})
+	})
+
+	// Get payment by ID (UUID) or Order ID
+	r.GET("/payment/:id", func(c *gin.Context) {
+		idStr := c.Param("id")
+		log.Printf("🔍 GET /payment/:id - Looking up payment with ID: %s", idStr)
+
+		var payment *Payment
+		var err error
+
+		// Check if it's an Order ID (starts with "DONATE_")
+		if strings.HasPrefix(idStr, "DONATE_") {
+			log.Printf("📋 Treating as Order ID")
+			payment, err = GetPaymentByOrderID(idStr)
+		} else {
+			// Try as Payment ID (UUID)
+			log.Printf("🔑 Treating as Payment ID (UUID)")
+			payment, err = GetPaymentByID(idStr)
+			// If not found as UUID, try as Order ID (for backward compatibility)
+			if err != nil {
+				log.Printf("⚠️  Not found as UUID, trying as Order ID: %v", err)
+				payment, err = GetPaymentByOrderID(idStr)
+			}
+		}
+
+		if err != nil {
+			log.Printf("❌ Payment not found: %v", err)
+			c.JSON(404, gin.H{
+				"success": false,
+				"error":   "Payment not found",
+				"id":      idStr,
+			})
+			return
+		}
+
+		log.Printf("✅ Payment found: %s (OrderID: %s)", payment.ID, payment.OrderID)
+		c.JSON(200, gin.H{
+			"success": true,
+			"data":    payment,
+		})
+	})
+
+	// Check payment status from Midtrans API (for manual polling/testing)
+	r.POST("/payment/check-status", func(c *gin.Context) {
+		var req struct {
+			OrderID string `json:"orderId" binding:"required"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Invalid request: " + err.Error(),
+			})
+			return
+		}
+
+		log.Printf("🔍 Manual status check requested for OrderID: %s", req.OrderID)
+
+		if err := CheckPaymentStatusFromMidtrans(req.OrderID); err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to check payment status: " + err.Error(),
+			})
+			return
+		}
+
+		// Get updated payment
+		payment, err := GetPaymentByOrderID(req.OrderID)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to get payment: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Payment status checked and updated",
+			"data":    payment,
+		})
+	})
+
+	// Midtrans webhook
+	r.POST("/payment/webhook", func(c *gin.Context) {
+		log.Printf("📥 Received webhook from Midtrans")
+
+		var webhookData map[string]interface{}
+		if err := c.ShouldBindJSON(&webhookData); err != nil {
+			log.Printf("❌ Invalid webhook data: %v", err)
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Invalid webhook data",
+			})
+			return
+		}
+
+		// Log webhook data for debugging
+		webhookJSON, _ := json.Marshal(webhookData)
+		log.Printf("📥 Webhook data: %s", string(webhookJSON))
+
+		orderID, ok := webhookData["order_id"].(string)
+		if !ok {
+			log.Printf("❌ Missing order_id in webhook")
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Missing order_id",
+			})
+			return
+		}
+
+		log.Printf("📥 Processing webhook for OrderID: %s", orderID)
+
+		transactionStatus, _ := webhookData["transaction_status"].(string)
+		transactionID, _ := webhookData["transaction_id"].(string)
+
+		log.Printf("📥 Transaction Status: %s, Transaction ID: %s", transactionStatus, transactionID)
+
+		var vaNumber, bankType, qrCodeURL string
+		if vaNumbers, ok := webhookData["va_numbers"].([]interface{}); ok && len(vaNumbers) > 0 {
+			if va, ok := vaNumbers[0].(map[string]interface{}); ok {
+				vaNumber, _ = va["va_number"].(string)
+				bankType, _ = va["bank"].(string)
+			}
+		}
+
+		if actions, ok := webhookData["actions"].([]interface{}); ok {
+			for _, action := range actions {
+				if act, ok := action.(map[string]interface{}); ok {
+					if name, _ := act["name"].(string); name == "generate-qr-code" {
+						qrCodeURL, _ = act["url"].(string)
+						break
+					}
+				}
+			}
+		}
+
+		var expiryTime *time.Time
+		if expiry, ok := webhookData["expiry_time"].(string); ok && expiry != "" {
+			exp, err := time.Parse(time.RFC3339, expiry)
+			if err == nil {
+				expiryTime = &exp
+			}
+		}
+
+		if err := UpdatePaymentStatus(orderID, transactionStatus, transactionID, vaNumber, bankType, qrCodeURL, expiryTime, string(webhookJSON)); err != nil {
+			log.Printf("❌ Failed to update payment status: %v", err)
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to update payment: " + err.Error(),
+			})
+			return
+		}
+
+		log.Printf("✅ Webhook processed successfully for OrderID: %s", orderID)
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Webhook processed",
+		})
+	})
+
 	log.Println("🚀 API running on :" + port)
 	log.Println("🔌 WebSocket:")
 	log.Println("   WS   /ws")
@@ -443,6 +654,11 @@ func main() {
 	log.Println("   GET  /hit/status")
 	log.Println("   POST /hit/reset")
 	log.Println("   GET  /hit/history")
+	log.Println("💳 Payment Endpoints:")
+	log.Println("   POST /payment/create")
+	log.Println("   GET  /payment/:id")
+	log.Println("   POST /payment/webhook")
+	log.Println("   POST /payment/check-status (manual status check)")
 
 	r.Run(":" + port)
 }

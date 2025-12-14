@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "donation-api-collection",
 		"name": "Donation API",
-		"description": "API collection for Donation System with WebSocket support",
+		"description": "API collection for Donation System with WebSocket support, Payment integration (Midtrans), and Donation History",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -37,7 +37,7 @@
 					"host": ["{{base_url}}"],
 					"path": ["hit", "gif"]
 				},
-				"description": "Trigger donation notification with image/video. Auto-detects media type from URL (image/video/YouTube/Instagram Reels/TikTok). Supports both 'imageUrl' (legacy) and 'mediaUrl'. Amount is integer (1000 = 10 seconds display time). Message max 160 characters. startTime (optional, in MINUTES) sets start time for YouTube videos - will be converted to seconds (e.g., startTime: 45 = 45 minutes = 2700 seconds). Also supports 'targetTime' field (can be string or int, in minutes). Default: 0. Automatically shows overlay, sets media, and displays donation message in realtime.\n\nSupported platforms:\n- YouTube: https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID (supports startTime/targetTime in minutes)\n- Instagram Reels: https://www.instagram.com/reel/REEL_ID/\n- TikTok: https://www.tiktok.com/@username/video/VIDEO_ID\n- Direct video/image URLs"
+				"description": "Trigger donation notification with image/video. Auto-detects media type from URL (image/video/YouTube/Instagram Reels/TikTok). Supports both 'imageUrl' (legacy) and 'mediaUrl'. Amount is integer (1000 = 10 seconds display time). Message max 250 characters. startTime (optional, in MINUTES) sets start time for YouTube videos - will be converted to seconds (e.g., startTime: 45 = 45 minutes = 2700 seconds). Also supports 'targetTime' field (can be string or int, in minutes). Default: 0. Automatically shows overlay, sets media, and displays donation message in realtime.\n\nSupported platforms:\n- YouTube: https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID (supports startTime/targetTime in minutes)\n- Instagram Reels: https://www.instagram.com/reel/REEL_ID/\n- TikTok: https://www.tiktok.com/@username/video/VIDEO_ID\n- Direct video/image URLs"
 			}
 		},
 		{
@@ -81,7 +81,7 @@
 					"host": ["{{base_url}}"],
 					"path": ["hit", "text"]
 				},
-				"description": "Trigger text-only donation alert with TTS (Text-to-Speech). Amount is integer (1000 = 10 seconds display time). Message max 160 characters. Automatically shows text alert and speaks the donation message in realtime."
+				"description": "Trigger text-only donation alert with TTS (Text-to-Speech) and BGM. Amount is integer (1000 = 10 seconds display time). Message max 250 characters. BGM plays for 2 seconds, then TTS starts. Text display is fixed at 10 seconds for short texts and 20 seconds for long texts. TTS stops after 8 seconds (total 10 seconds from start). Automatically shows text alert and speaks the donation message in realtime."
 			}
 		},
 		{
@@ -149,6 +149,95 @@
 					"path": ["hit", "reset"]
 				},
 				"description": "Clear all donation queues and reset state. This will:\n- Remove all pending donations from RabbitMQ queue\n- Reset current donation state\n- Reset pause state\n\nNote: This does not stop the currently processing donation. Use pause first if you want to stop it before resetting."
+			}
+		},
+		{
+			"name": "Hit History",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/hit/history?limit=50&offset=0",
+					"host": ["{{base_url}}"],
+					"path": ["hit", "history"],
+					"query": [
+						{
+							"key": "limit",
+							"value": "50",
+							"description": "Number of records to return (default: 50, max: 100)"
+						},
+						{
+							"key": "offset",
+							"value": "0",
+							"description": "Number of records to skip for pagination (default: 0)"
+						}
+					]
+				},
+				"description": "Get donation history with pagination. Returns only GIF and text donations stored in PostgreSQL. Results are ordered by creation date (newest first). Supports real-time updates via WebSocket when new donations are added."
+			}
+		},
+		{
+			"name": "Payment Create",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"donorName\": \"John Doe\",\n  \"donorEmail\": \"john@example.com\",\n  \"amount\": 50000,\n  \"donationType\": \"text\",\n  \"message\": \"Terima kasih atas donasinya!\",\n  \"notes\": \"Donasi untuk acara charity\",\n  \"paymentMethod\": \"bank_transfer\",\n  \"bank\": \"bca\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/payment/create",
+					"host": ["{{base_url}}"],
+					"path": ["payment", "create"]
+				},
+				"description": "Create a new payment via Midtrans. This will:\n- Generate a unique order ID (UUID format: DONATE_<uuid>)\n- Create payment record in database\n- Charge Midtrans API\n- Return payment details including VA number or QR code\n\nRequired fields:\n- donorName: Donor's name\n- amount: Donation amount (minimum 1000)\n- donationType: 'gif' or 'text'\n- paymentMethod: 'bank_transfer', 'gopay', or 'credit_card'\n\nOptional fields:\n- donorEmail: Donor's email\n- mediaUrl: Media URL (required for 'gif' type)\n- mediaType: Media type (auto-detected if not provided)\n- startTime: Start time in seconds for YouTube videos\n- message: Donation message (max 250 characters)\n- notes: Additional notes\n- bank: Bank code for bank_transfer ('bca', 'bni', 'mandiri', 'permata')\n\nOn successful payment, donation will be automatically queued and displayed."
+			}
+		},
+		{
+			"name": "Payment Get by ID",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/payment/:id",
+					"host": ["{{base_url}}"],
+					"path": ["payment", ":id"],
+					"variable": [
+						{
+							"key": "id",
+							"value": "DONATE_12345678-1234-1234-1234-123456789abc",
+							"description": "Payment ID (numeric) or Order ID (UUID format: DONATE_<uuid>)"
+						}
+					]
+				},
+				"description": "Get payment details by ID. Accepts either:\n- Numeric payment ID (e.g., 1, 2, 3)\n- Order ID in UUID format (e.g., DONATE_12345678-1234-1234-1234-123456789abc)\n\nReturns payment information including status, VA number, QR code URL, and expiry time. Payment status updates are broadcast via WebSocket in real-time."
+			}
+		},
+		{
+			"name": "Payment Webhook",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"transaction_time\": \"2024-01-01 12:00:00\",\n  \"transaction_status\": \"settlement\",\n  \"transaction_id\": \"12345678-1234-1234-1234-123456789abc\",\n  \"status_message\": \"midtrans payment notification\",\n  \"status_code\": \"200\",\n  \"signature_key\": \"...\",\n  \"payment_type\": \"bank_transfer\",\n  \"order_id\": \"DONATE_12345678-1234-1234-1234-123456789abc\",\n  \"gross_amount\": \"50000.00\",\n  \"fraud_status\": \"accept\",\n  \"currency\": \"IDR\",\n  \"va_numbers\": [\n    {\n      \"va_number\": \"1234567890\",\n      \"bank\": \"bca\"\n    }\n  ],\n  \"expiry_time\": \"2024-01-02T12:00:00+07:00\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/payment/webhook",
+					"host": ["{{base_url}}"],
+					"path": ["payment", "webhook"]
+				},
+				"description": "Midtrans payment notification webhook. This endpoint is called by Midtrans when payment status changes.\n\nOn successful payment (status: 'settlement' or 'capture'):\n- Updates payment status to SUCCESS\n- Creates donation history record\n- Queues donation for display\n- Broadcasts payment status update via WebSocket\n- Broadcasts donation history via WebSocket\n\nRequired fields:\n- order_id: Payment order ID\n- transaction_status: Payment status ('pending', 'settlement', 'capture', 'deny', 'cancel', 'expire')\n- transaction_id: Midtrans transaction ID\n\nOptional fields:\n- va_numbers: Array of VA numbers (for bank_transfer)\n- actions: Array of actions (for QR code URL)\n- expiry_time: Payment expiry time (RFC3339 format)\n\nThis endpoint should be configured in Midtrans dashboard as the notification URL."
 			}
 		}
 	],
