@@ -51,6 +51,11 @@ func detectMediaType(url string) string {
 }
 
 func main() {
+	// Initialize Database
+	if err := InitDatabase(); err != nil {
+		log.Printf("⚠️  Warning: Database initialization failed: %v. History will not be saved.", err)
+	}
+
 	// Initialize RabbitMQ
 	if err := InitRabbitMQ(); err != nil {
 		log.Printf("⚠️  Warning: RabbitMQ initialization failed: %v. Donations will be processed directly.", err)
@@ -68,6 +73,21 @@ func main() {
 	}
 
 	r := gin.Default()
+
+	// CORS middleware
+	r.Use(func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	})
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -379,6 +399,38 @@ func main() {
 		port = "8080"
 	}
 
+	// HIT HISTORY - Get donation history (gif and text only)
+	r.GET("/hit/history", func(c *gin.Context) {
+		limitStr := c.DefaultQuery("limit", "50")
+		offsetStr := c.DefaultQuery("offset", "0")
+
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit <= 0 || limit > 100 {
+			limit = 50
+		}
+
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil || offset < 0 {
+			offset = 0
+		}
+
+		history, err := GetDonationHistory(limit, offset)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to retrieve donation history: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"data":    history,
+			"limit":   limit,
+			"offset":  offset,
+		})
+	})
+
 	log.Println("🚀 API running on :" + port)
 	log.Println("🔌 WebSocket:")
 	log.Println("   WS   /ws")
@@ -390,6 +442,7 @@ func main() {
 	log.Println("   POST /hit/resume")
 	log.Println("   GET  /hit/status")
 	log.Println("   POST /hit/reset")
+	log.Println("   GET  /hit/history")
 
 	r.Run(":" + port)
 }

@@ -200,6 +200,20 @@ func StartDonationWorker() {
 			waitDuration := calculateDisplayDuration(job.Amount)
 			durationMs := int(waitDuration.Milliseconds())
 
+			// Save donation to history (only for gif and text)
+			if job.Type == "gif" || job.Type == "text" {
+				if err := SaveDonationHistory(job); err != nil {
+					log.Printf("⚠️  Failed to save donation history: %v", err)
+					// Continue processing even if history save fails
+				} else {
+					// Broadcast new history to WebSocket clients
+					history, err := GetDonationHistoryByID(job.ID)
+					if err == nil && history != nil {
+						BroadcastHistory(history)
+					}
+				}
+			}
+
 			// Process the donation based on type
 			if job.Type == "gif" {
 				// Broadcast media first

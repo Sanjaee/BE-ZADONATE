@@ -19,6 +19,26 @@ services:
       timeout: 10s
       retries: 5
 
+  postgres:
+    image: postgres:15-alpine
+    container_name: obs-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=donation_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - obs-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   obs-hit-api:
     build:
       context: .
@@ -31,6 +51,8 @@ services:
       - GIN_MODE=release
       # RabbitMQ connection
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672/
+      # PostgreSQL connection
+      - DATABASE_URL=postgres://admin:admin@postgres:5432/donation_db?sslmode=disable
       # OBS connection settings
       # For Windows/Mac: use host.docker.internal
       # For Linux: use host network mode or actual host IP
@@ -48,11 +70,14 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - obs-network
 
 volumes:
   rabbitmq_data:
+  postgres_data:
 
 networks:
   obs-network:

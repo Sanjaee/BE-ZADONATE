@@ -37,7 +37,7 @@ type Client struct {
 // DonationMessage represents a donation notification
 type DonationMessage struct {
 	ID         string `json:"id,omitempty"` // UUID for tracking this donation
-	Type       string `json:"type"`         // "donation", "media", "visibility", "time", "gif", "text"
+	Type       string `json:"type"`         // "donation", "media", "visibility", "time", "gif", "text", "history"
 	DonorName  string `json:"donorName,omitempty"`
 	Amount     int    `json:"amount,omitempty"` // Integer amount
 	Message    string `json:"message,omitempty"`
@@ -47,6 +47,7 @@ type DonationMessage struct {
 	Duration   int    `json:"duration,omitempty"`  // Display duration in milliseconds
 	Visible    bool   `json:"visible,omitempty"`
 	TargetTime string `json:"targetTime,omitempty"` // For time countdown: "YYYY-MM-DDTHH:mm:ss" OR for YouTube start time: seconds (as string or int)
+	CreatedAt  string `json:"createdAt,omitempty"`  // For history: creation timestamp
 }
 
 var hub = &Hub{
@@ -254,6 +255,30 @@ func BroadcastTime(targetTime string) {
 
 	hub.broadcast <- data
 	log.Printf("Broadcasted time target: %s", targetTime)
+}
+
+// BroadcastHistory sends a new donation history to all connected clients
+func BroadcastHistory(history *DonationHistory) {
+	message := DonationMessage{
+		Type:      "history",
+		ID:        history.ID,
+		DonorName: history.DonorName,
+		Amount:    history.Amount,
+		Message:   history.Message,
+		MediaURL:  history.MediaURL,
+		MediaType: history.MediaType,
+		StartTime: history.StartTime,
+		CreatedAt: history.CreatedAt.Format(time.RFC3339),
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Error marshaling history message: %v", err)
+		return
+	}
+
+	hub.broadcast <- data
+	log.Printf("📤 Broadcasted history: %s - %s - Rp%d", history.ID, history.DonorName, history.Amount)
 }
 
 // BroadcastText sends a text-only donation message to all connected clients
