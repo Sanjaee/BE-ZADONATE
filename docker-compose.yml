@@ -45,9 +45,9 @@ services:
       dockerfile: Dockerfile
     container_name: obs-hit-api
     ports:
-      - "8080:8080"
+      - "5000:5000"
     environment:
-      - PORT=8080
+      - PORT=5000
       - GIN_MODE=release
       # RabbitMQ connection
       - RABBITMQ_URL=amqp://admin:admin@rabbitmq:5672/

@@ -24,7 +24,7 @@ WORKDIR /root/
 COPY --from=builder /app/obs-hit .
 
 # Expose port
-EXPOSE 8080
+EXPOSE 5000
 
 # Run the binary
 CMD ["./obs-hit"]
