@@ -40,7 +40,7 @@ go mod download
 go run .
 ```
 
-Server akan berjalan di `http://localhost:8080`
+Server akan berjalan di `http://localhost:5000`
 
 ## 🐳 Run dengan Docker
 
@@ -54,7 +54,7 @@ docker-compose up --build
 
 ```bash
 docker build -t obs-hit .
-docker run -p 8080:8080 \
+docker run -p 5000:5000 \
   -e OBS_HOST=host.docker.internal:4455 \
   -e OBS_PASSWORD=password123 \
   obs-hit
@@ -68,7 +68,7 @@ docker run -p 8080:8080 \
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `8080` | Port untuk HTTP server |
+| `PORT` | `5000` | Port untuk HTTP server |
 | `GIN_MODE` | `release` | Gin framework mode (`debug` / `release`) |
 | `OBS_HOST` | `localhost:4455` | OBS WebSocket host dan port |
 | `OBS_PASSWORD` | `password123` | OBS WebSocket password |
@@ -233,46 +233,46 @@ GET /api/test/sound?input=DonasiSound
 
 ### Health Check
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:5000/health
 ```
 
 ### Browser OBS API
 ```bash
 # Get all scenes
-curl http://localhost:8080/api/obs/scenes
+curl http://localhost:5000/api/obs/scenes
 
 # Get current scene
-curl http://localhost:8080/api/obs/scene/current
+curl http://localhost:5000/api/obs/scene/current
 
 # Get all inputs
-curl http://localhost:8080/api/obs/inputs
+curl http://localhost:5000/api/obs/inputs
 
 # Get OBS info
-curl http://localhost:8080/api/obs/info
+curl http://localhost:5000/api/obs/info
 ```
 
 ### Hit Endpoints
 ```bash
 # Hit scene (default)
-curl http://localhost:8080/hit/scene
+curl http://localhost:5000/hit/scene
 
 # Hit scene (custom)
-curl http://localhost:8080/hit/scene?scene=Donasi
+curl http://localhost:5000/hit/scene?scene=Donasi
 
 # Hit sound (default)
-curl http://localhost:8080/hit/sound
+curl http://localhost:5000/hit/sound
 
 # Hit sound (custom)
-curl http://localhost:8080/hit/sound?input=DonasiSound
+curl http://localhost:5000/hit/sound?input=DonasiSound
 ```
 
 ### Test Endpoints
 ```bash
 # Test hit scene
-curl http://localhost:8080/api/test/scene?scene=Donasi
+curl http://localhost:5000/api/test/scene?scene=Donasi
 
 # Test hit sound
-curl http://localhost:8080/api/test/sound?input=DonasiSound
+curl http://localhost:5000/api/test/sound?input=DonasiSound
 ```
 
 ## 📦 Postman Collection

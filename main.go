@@ -397,7 +397,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080"
+		port = "5000"
 	}
 
 	// HIT HISTORY - Get donation history (gif and text only)
