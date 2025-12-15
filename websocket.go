@@ -20,11 +20,13 @@ var upgrader = websocket.Upgrader{
 
 // Hub maintains the set of active clients and broadcasts messages to the clients
 type Hub struct {
-	clients    map[*Client]bool
-	broadcast  chan []byte
-	register   chan *Client
-	unregister chan *Client
-	mu         sync.RWMutex
+	clients         map[*Client]bool
+	broadcast       chan []byte
+	register        chan *Client
+	unregister      chan *Client
+	mu              sync.RWMutex
+	pendingDonation []byte // Store last donation message for reconnection
+	pendingMedia    []byte // Store last media message for reconnection
 }
 
 // Client is a middleman between the websocket connection and the hub
@@ -73,6 +75,23 @@ func (h *Hub) run() {
 			h.mu.Lock()
 			h.clients[client] = true
 			count := len(h.clients)
+			// Send pending messages to newly connected client
+			if h.pendingDonation != nil {
+				select {
+				case client.send <- h.pendingDonation:
+					log.Printf("📤 Sent pending donation to newly connected client")
+				default:
+					// Channel full, skip
+				}
+			}
+			if h.pendingMedia != nil {
+				select {
+				case client.send <- h.pendingMedia:
+					log.Printf("📤 Sent pending media to newly connected client")
+				default:
+					// Channel full, skip
+				}
+			}
 			h.mu.Unlock()
 			log.Printf("✅ WebSocket client connected. Total clients: %d", count)
 
@@ -94,10 +113,29 @@ func (h *Hub) run() {
 			}
 			h.mu.RUnlock()
 
+			// Parse message to determine type and store if needed
+			var msgType string
+			var msgMap map[string]interface{}
+			if err := json.Unmarshal(message, &msgMap); err == nil {
+				if t, ok := msgMap["type"].(string); ok {
+					msgType = t
+					// Store donation and media messages for reconnection
+					if msgType == "donation" || msgType == "text" {
+						h.mu.Lock()
+						h.pendingDonation = message
+						h.mu.Unlock()
+					} else if msgType == "media" {
+						h.mu.Lock()
+						h.pendingMedia = message
+						h.mu.Unlock()
+					}
+				}
+			}
+
 			if len(clients) == 0 {
-				log.Printf("⚠️  No WebSocket clients connected to receive message")
+				log.Printf("⚠️  No WebSocket clients connected to receive message (type: %s), stored for reconnection", msgType)
 			} else {
-				log.Printf("📤 Broadcasting message to %d client(s)", len(clients))
+				log.Printf("📤 Broadcasting message to %d client(s) (type: %s)", len(clients), msgType)
 			}
 
 			for _, client := range clients {
