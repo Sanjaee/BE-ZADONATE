@@ -114,7 +114,9 @@ func PublishDonation(job DonationJob) error {
 	}
 
 	if rabbitmqChan == nil {
-		return nil // Fallback to direct broadcast if RabbitMQ not available
+		// Fallback to direct broadcast if RabbitMQ not available
+		log.Printf("⚠️  RabbitMQ not available, processing donation directly: %s - %d", job.DonorName, job.Amount)
+		return processDonationDirectly(job)
 	}
 
 	body, err := json.Marshal(job)
@@ -135,11 +137,41 @@ func PublishDonation(job DonationJob) error {
 	)
 
 	if err != nil {
-		log.Printf("Error publishing to RabbitMQ: %v", err)
-		return err
+		log.Printf("Error publishing to RabbitMQ: %v, falling back to direct broadcast", err)
+		// Fallback to direct broadcast if publish fails
+		return processDonationDirectly(job)
 	}
 
 	log.Printf("📤 Published donation to queue: %s - %d", job.DonorName, job.Amount)
+	return nil
+}
+
+// processDonationDirectly processes donation without queue (fallback when RabbitMQ unavailable)
+// Note: History is already created in payment.go, so we only need to broadcast
+func processDonationDirectly(job DonationJob) error {
+	// Calculate display duration based on donation amount
+	waitDuration := calculateDisplayDuration(job.Amount)
+	durationMs := int(waitDuration.Milliseconds())
+
+	// History is already created in payment.go before calling PublishDonation
+	// So we just need to broadcast the donation
+
+	// Process the donation based on type
+	if job.Type == "gif" {
+		// Broadcast media first
+		if job.MediaURL != "" {
+			BroadcastMedia(job.ID, job.MediaURL, job.MediaType, job.StartTime)
+			// Small delay to ensure media is shown first
+			time.Sleep(500 * time.Millisecond)
+		}
+		// Then broadcast donation with duration
+		BroadcastDonation(job.ID, job.DonorName, job.Amount, job.Message, durationMs)
+	} else if job.Type == "text" {
+		// Broadcast text donation with duration
+		BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs)
+	}
+
+	log.Printf("✅ Donation processed directly: %s - %d (ID: %s, duration: %v)", job.DonorName, job.Amount, job.ID, waitDuration)
 	return nil
 }
 
