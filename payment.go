@@ -582,6 +582,9 @@ func UpdatePaymentStatus(orderID string, status string, transactionID string, va
 		} else {
 			log.Printf("✅ Donation history created: %s - %s - Rp%d", historyID, payment.DonorName, payment.Amount)
 
+			// Load payment relation before broadcasting
+			history.Payment = &payment
+
 			// Broadcast history to WebSocket immediately after creation
 			BroadcastHistory(&history)
 

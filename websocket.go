@@ -51,14 +51,16 @@ type DonationMessage struct {
 	TargetTime string `json:"targetTime,omitempty"` // For time countdown: "YYYY-MM-DDTHH:mm:ss" OR for YouTube start time: seconds (as string or int)
 	CreatedAt  string `json:"createdAt,omitempty"`  // For history: creation timestamp
 	// Payment status fields
-	PaymentID    string `json:"paymentId,omitempty"`
-	OrderID      string `json:"orderId,omitempty"`
-	Status       string `json:"status,omitempty"` // PENDING, SUCCESS, FAILED, etc
-	VANumber     string `json:"vaNumber,omitempty"`
-	BankType     string `json:"bankType,omitempty"`
-	QRCodeURL    string `json:"qrCodeUrl,omitempty"`
-	ExpiryTime   string `json:"expiryTime,omitempty"`
-	DonationType string `json:"donationType,omitempty"`
+	PaymentID     string `json:"paymentId,omitempty"`
+	OrderID       string `json:"orderId,omitempty"`
+	Status        string `json:"status,omitempty"` // PENDING, SUCCESS, FAILED, etc
+	VANumber      string `json:"vaNumber,omitempty"`
+	BankType      string `json:"bankType,omitempty"`
+	QRCodeURL     string `json:"qrCodeUrl,omitempty"`
+	ExpiryTime    string `json:"expiryTime,omitempty"`
+	DonationType  string `json:"donationType,omitempty"`
+	PaymentMethod string `json:"paymentMethod,omitempty"` // crypto, bank_transfer, gopay, etc
+	PaymentType   string `json:"paymentType,omitempty"`   // plisio, midtrans
 }
 
 var hub = &Hub{
@@ -316,6 +318,13 @@ func BroadcastHistory(history *DonationHistory) {
 		MediaType: history.MediaType,
 		StartTime: history.StartTime,
 		CreatedAt: history.CreatedAt.Format(time.RFC3339),
+	}
+
+	// Include payment info if available
+	if history.Payment != nil {
+		message.PaymentMethod = history.Payment.PaymentMethod
+		message.PaymentType = history.Payment.PaymentType
+		message.PaymentID = history.Payment.ID
 	}
 
 	data, err := json.Marshal(message)

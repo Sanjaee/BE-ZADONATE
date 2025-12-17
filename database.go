@@ -214,6 +214,7 @@ func GetDonationHistory(limit, offset int) ([]DonationHistory, error) {
 	var history []DonationHistory
 
 	err := db.Order("created_at DESC").
+		Preload("Payment"). // Preload payment relation to get payment method info
 		Limit(limit).
 		Offset(offset).
 		Find(&history).Error

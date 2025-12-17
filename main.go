@@ -642,6 +642,117 @@ func main() {
 		})
 	})
 
+	// ========== PLISIO CRYPTO PAYMENT ENDPOINTS ==========
+
+	// Create Plisio invoice
+	r.POST("/payment/plisio/create", func(c *gin.Context) {
+		var req PlisioCreateInvoiceRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Invalid request: " + err.Error(),
+			})
+			return
+		}
+
+		payment, invoiceData, err := CreatePlisioInvoice(req)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to create Plisio invoice: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"data": gin.H{
+				"payment":    payment,
+				"invoice":    invoiceData,
+				"invoiceUrl": invoiceData.InvoiceURL,
+				"txnId":      invoiceData.TxnID,
+			},
+		})
+	})
+
+	// Plisio webhook
+	r.POST("/payment/plisio/webhook", func(c *gin.Context) {
+		log.Printf("📥 Received webhook from Plisio")
+
+		var webhookData map[string]interface{}
+		if err := c.ShouldBindJSON(&webhookData); err != nil {
+			log.Printf("❌ Invalid webhook data: %v", err)
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Invalid webhook data",
+			})
+			return
+		}
+
+		// Log webhook data for debugging
+		webhookJSON, _ := json.Marshal(webhookData)
+		log.Printf("📥 Plisio webhook data: %s", string(webhookJSON))
+
+		// Verify callback data
+		if !VerifyPlisioCallback(webhookData) {
+			log.Printf("❌ Invalid Plisio callback verification")
+			c.JSON(422, gin.H{
+				"success": false,
+				"error":   "Invalid callback verification",
+			})
+			return
+		}
+
+		// Parse callback data
+		var callbackData PlisioCallbackData
+		callbackJSON, _ := json.Marshal(webhookData)
+		if err := json.Unmarshal(callbackJSON, &callbackData); err != nil {
+			log.Printf("❌ Failed to parse callback data: %v", err)
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Failed to parse callback data",
+			})
+			return
+		}
+
+		log.Printf("📥 Processing Plisio webhook for OrderNumber: %s, Status: %s", callbackData.OrderNumber, callbackData.Status)
+
+		if err := UpdatePaymentStatusFromPlisio(callbackData); err != nil {
+			log.Printf("❌ Failed to update payment status: %v", err)
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to update payment: " + err.Error(),
+			})
+			return
+		}
+
+		log.Printf("✅ Plisio webhook processed successfully for OrderNumber: %s", callbackData.OrderNumber)
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Webhook processed",
+		})
+	})
+
+	// Get supported cryptocurrencies
+	r.GET("/payment/plisio/currencies", func(c *gin.Context) {
+		sourceCurrency := c.DefaultQuery("sourceCurrency", "")
+
+		currencies, err := GetPlisioCurrencies(sourceCurrency)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to fetch currencies: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"data":    currencies,
+			"count":   len(currencies),
+		})
+	})
+
 	log.Println("🚀 API running on :" + port)
 	log.Println("🔌 WebSocket:")
 	log.Println("   WS   /ws")
@@ -659,6 +770,10 @@ func main() {
 	log.Println("   GET  /payment/:id")
 	log.Println("   POST /payment/webhook")
 	log.Println("   POST /payment/check-status (manual status check)")
+	log.Println("🪙 Plisio Crypto Payment Endpoints:")
+	log.Println("   POST /payment/plisio/create")
+	log.Println("   POST /payment/plisio/webhook")
+	log.Println("   GET  /payment/plisio/currencies")
 
 	r.Run(":" + port)
 }
