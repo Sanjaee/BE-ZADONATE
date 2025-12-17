@@ -22,7 +22,7 @@ import (
 const (
 	PLISIO_API_KEY     = "K1E90c5WRly4i69szH9xjkUF-0rDM-tl3WKA06hMayTBDvuOmjjsj3z_i_f7NIFk"
 	PLISIO_BASE_URL    = "https://api.plisio.net/api/v1"
-	PLISIO_API_KEY_ENV = "K1E90c5WRly4i69szH9xjkUF-0rDM-tl3WKA06hMayTBDvuOmjjsj3z_i_f7NIFk"
+	PLISIO_API_KEY_ENV = "PLISIO_API_KEY" // Environment variable name
 )
 
 // PlisioCreateInvoiceRequest represents request to create Plisio invoice
