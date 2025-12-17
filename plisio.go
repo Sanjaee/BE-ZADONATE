@@ -23,6 +23,7 @@ const (
 	PLISIO_API_KEY     = "K1E90c5WRly4i69szH9xjkUF-0rDM-tl3WKA06hMayTBDvuOmjjsj3z_i_f7NIFk"
 	PLISIO_BASE_URL    = "https://api.plisio.net/api/v1"
 	PLISIO_API_KEY_ENV = "PLISIO_API_KEY" // Environment variable name
+	USD_TO_IDR_RATE    = 16500            // USD to IDR conversion rate for duration calculation
 )
 
 // PlisioCreateInvoiceRequest represents request to create Plisio invoice
@@ -322,13 +323,21 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 		notesWithOrderNumber = fmt.Sprintf("%s | %s", notesWithOrderNumber, req.Notes)
 	}
 
+	// Convert USD cents to IDR for duration calculation
+	// req.Amount is in USD cents (e.g., 312 = $3.12)
+	// Convert to IDR: (USD cents / 100) * USD_TO_IDR_RATE
+	usdAmount := float64(req.Amount) / 100.0
+	amountInIdr := int(usdAmount * USD_TO_IDR_RATE)
+
+	log.Printf("💰 Amount conversion: $%.2f USD (%d cents) = Rp %d IDR", usdAmount, req.Amount, amountInIdr)
+
 	payment := Payment{
 		ID:            paymentID,
 		OrderID:       orderID,
 		DonorName:     req.DonorName,
 		DonorEmail:    req.DonorEmail,
-		Amount:        req.Amount,
-		TotalAmount:   req.Amount,
+		Amount:        amountInIdr, // Store in IDR for duration calculation
+		TotalAmount:   amountInIdr, // Store in IDR for duration calculation
 		Status:        PaymentStatusPending,
 		PaymentMethod: "crypto",
 		PaymentType:   "plisio",
