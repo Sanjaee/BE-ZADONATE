@@ -735,10 +735,12 @@ func main() {
 
 	// Get supported cryptocurrencies
 	r.GET("/payment/plisio/currencies", func(c *gin.Context) {
+		log.Printf("📥 GET /payment/plisio/currencies - Request received")
 		sourceCurrency := c.DefaultQuery("sourceCurrency", "")
 
 		currencies, err := GetPlisioCurrencies(sourceCurrency)
 		if err != nil {
+			log.Printf("❌ Failed to fetch currencies: %v", err)
 			c.JSON(500, gin.H{
 				"success": false,
 				"error":   "Failed to fetch currencies: " + err.Error(),
@@ -746,6 +748,7 @@ func main() {
 			return
 		}
 
+		log.Printf("✅ Successfully fetched %d currencies", len(currencies))
 		c.JSON(200, gin.H{
 			"success": true,
 			"data":    currencies,

@@ -287,12 +287,15 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 	}
 	callbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true", backendURL)
 	params.Add("callback_url", callbackURL)
+	log.Printf("🔗 Plisio callback URL: %s", callbackURL)
 
 	// Success and fail callback URLs
 	successCallbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true&type=success", backendURL)
 	failCallbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true&type=fail", backendURL)
 	params.Add("success_callback_url", successCallbackURL)
 	params.Add("fail_callback_url", failCallbackURL)
+	log.Printf("🔗 Plisio success callback URL: %s", successCallbackURL)
+	log.Printf("🔗 Plisio fail callback URL: %s", failCallbackURL)
 
 	// Expiry time (default 24 hours = 1440 minutes)
 	if req.ExpireMin == 0 {
