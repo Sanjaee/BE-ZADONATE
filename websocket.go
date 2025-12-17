@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -331,17 +333,15 @@ func BroadcastHistory(history *DonationHistory) {
 
 		// Include crypto info if payment is crypto
 		if history.Payment.PaymentMethod == "crypto" && history.Payment.PaymentType == "plisio" {
-			// Parse Plisio response to get currency and amount
-			if history.Payment.MidtransResponse != "" {
-				var plisioResp map[string]interface{}
-				if err := json.Unmarshal([]byte(history.Payment.MidtransResponse), &plisioResp); err == nil {
-					if currency, ok := plisioResp["currency"].(string); ok && currency != "" {
-						message.PlisioCurrency = currency
-					}
-					if amount, ok := plisioResp["amount"].(string); ok && amount != "" {
-						message.PlisioAmount = amount
-					}
-				}
+			// Use stored Plisio currency and amount from database
+			if history.Payment.PlisioCurrency != "" {
+				message.PlisioCurrency = history.Payment.PlisioCurrency
+			}
+			if history.Payment.PlisioSourceAmount > 0 {
+				// Format amount with appropriate decimal places
+				message.PlisioAmount = fmt.Sprintf("%.8f", history.Payment.PlisioSourceAmount)
+				// Remove trailing zeros
+				message.PlisioAmount = strings.TrimRight(strings.TrimRight(message.PlisioAmount, "0"), ".")
 			}
 		}
 	}

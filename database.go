@@ -49,8 +49,17 @@ type Payment struct {
 	BankType              string        `gorm:"type:varchar(20)" json:"bankType,omitempty"`
 	QRCodeURL             string        `gorm:"type:text" json:"qrCodeUrl,omitempty"`
 	ExpiryTime            *time.Time    `gorm:"type:timestamp" json:"expiryTime,omitempty"`
-	CreatedAt             time.Time     `gorm:"type:timestamp;default:CURRENT_TIMESTAMP;index" json:"createdAt"`
-	UpdatedAt             time.Time     `gorm:"type:timestamp;default:CURRENT_TIMESTAMP" json:"updatedAt"`
+	// Plisio crypto payment fields
+	PlisioTxnID           string    `gorm:"type:varchar(100);index" json:"plisioTxnId,omitempty"`
+	PlisioInvoiceURL      string    `gorm:"type:text" json:"plisioInvoiceUrl,omitempty"`
+	PlisioWalletHash      string    `gorm:"type:varchar(255)" json:"plisioWalletHash,omitempty"`
+	PlisioPsysCid         string    `gorm:"type:varchar(50)" json:"plisioPsysCid,omitempty"`
+	PlisioCurrency        string    `gorm:"type:varchar(50)" json:"plisioCurrency,omitempty"`
+	PlisioSourceCurrency  string    `gorm:"type:varchar(10)" json:"plisioSourceCurrency,omitempty"`
+	PlisioSourceAmount    float64   `gorm:"type:numeric" json:"plisioSourceAmount,omitempty"`
+	PlisioInvoiceResponse string    `gorm:"type:text" json:"plisioInvoiceResponse,omitempty"`
+	CreatedAt             time.Time `gorm:"type:timestamp;default:CURRENT_TIMESTAMP;index" json:"createdAt"`
+	UpdatedAt             time.Time `gorm:"type:timestamp;default:CURRENT_TIMESTAMP" json:"updatedAt"`
 
 	// Note: History relation is handled via History.PaymentID (one-to-one)
 }
