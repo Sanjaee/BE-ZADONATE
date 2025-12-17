@@ -61,6 +61,9 @@ type DonationMessage struct {
 	DonationType  string `json:"donationType,omitempty"`
 	PaymentMethod string `json:"paymentMethod,omitempty"` // crypto, bank_transfer, gopay, etc
 	PaymentType   string `json:"paymentType,omitempty"`   // plisio, midtrans
+	// Crypto payment fields
+	PlisioCurrency string `json:"plisioCurrency,omitempty"` // BTC, ETH, SOL, etc
+	PlisioAmount   string `json:"plisioAmount,omitempty"`   // Crypto amount (e.g., "0.001", "0.5")
 }
 
 var hub = &Hub{
@@ -325,6 +328,22 @@ func BroadcastHistory(history *DonationHistory) {
 		message.PaymentMethod = history.Payment.PaymentMethod
 		message.PaymentType = history.Payment.PaymentType
 		message.PaymentID = history.Payment.ID
+
+		// Include crypto info if payment is crypto
+		if history.Payment.PaymentMethod == "crypto" && history.Payment.PaymentType == "plisio" {
+			// Parse Plisio response to get currency and amount
+			if history.Payment.MidtransResponse != "" {
+				var plisioResp map[string]interface{}
+				if err := json.Unmarshal([]byte(history.Payment.MidtransResponse), &plisioResp); err == nil {
+					if currency, ok := plisioResp["currency"].(string); ok && currency != "" {
+						message.PlisioCurrency = currency
+					}
+					if amount, ok := plisioResp["amount"].(string); ok && amount != "" {
+						message.PlisioAmount = amount
+					}
+				}
+			}
+		}
 	}
 
 	data, err := json.Marshal(message)

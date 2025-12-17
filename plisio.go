@@ -419,6 +419,17 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 		"updated_at":              time.Now(),
 	}
 
+	// Store crypto currency and amount from invoice response
+	if invoiceData.Currency != "" {
+		updateData["plisio_currency"] = invoiceData.Currency
+	}
+	if invoiceData.Amount != "" {
+		// Parse amount as float64 and store
+		if amountFloat, err := strconv.ParseFloat(invoiceData.Amount, 64); err == nil {
+			updateData["plisio_source_amount"] = amountFloat
+		}
+	}
+
 	// Parse expiry time if available
 	if invoiceData.ExpireUtc > 0 {
 		expiryTime := time.Unix(invoiceData.ExpireUtc, 0)
@@ -556,6 +567,17 @@ func UpdatePaymentStatusFromPlisio(callbackData PlisioCallbackData) error {
 		"expiry_time":             expiryTime,
 		"midtrans_response":       string(callbackJSON),
 		"updated_at":              time.Now(),
+	}
+
+	// Store crypto currency and amount from callback
+	if callbackData.Currency != "" {
+		updateData["plisio_currency"] = callbackData.Currency
+	}
+	if callbackData.Amount != "" {
+		// Parse amount as float64 and store
+		if amountFloat, err := strconv.ParseFloat(callbackData.Amount, 64); err == nil {
+			updateData["plisio_source_amount"] = amountFloat
+		}
 	}
 
 	// Check if status actually changed
