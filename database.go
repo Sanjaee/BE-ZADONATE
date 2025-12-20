@@ -214,7 +214,6 @@ func SaveDonationHistory(job DonationJob) error {
 		return err
 	}
 
-	log.Printf("✅ Donation history saved: %s (%s) - %s - Rp%d", job.ID, job.Type, job.DonorName, job.Amount)
 	return nil
 }
 

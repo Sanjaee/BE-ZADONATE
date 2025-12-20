@@ -184,7 +184,6 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 
 	// Create payment record first
 	paymentID := uuid.New().String()
-	log.Printf("💳 Creating payment with ID: %s, OrderID: %s", paymentID, orderID)
 	payment := Payment{
 		ID:            paymentID,
 		OrderID:       orderID,
@@ -206,14 +205,6 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 	if err := db.Create(&payment).Error; err != nil {
 		log.Printf("❌ Failed to create payment: %v", err)
 		return nil, fmt.Errorf("failed to create payment: %v", err)
-	}
-
-	// Verify payment was created by querying it back
-	var verifyPayment Payment
-	if verifyErr := db.Where("id = ?", paymentID).First(&verifyPayment).Error; verifyErr != nil {
-		log.Printf("⚠️  WARNING: Payment created but cannot be retrieved! ID: %s, Error: %v", paymentID, verifyErr)
-	} else {
-		log.Printf("✅ Payment created and verified: ID=%s, OrderID=%s", verifyPayment.ID, verifyPayment.OrderID)
 	}
 
 	// Charge to Midtrans
@@ -266,7 +257,6 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 	for _, action := range midtransResp.Actions {
 		if action.Name == "generate-qr-code" || action.Name == "generate-qr-code-v2" {
 			qrCodeURL = action.URL
-			log.Printf("✅ Found QR code URL from action '%s': %s", action.Name, qrCodeURL)
 			break
 		}
 	}
@@ -275,7 +265,6 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 		for _, action := range midtransResp.Actions {
 			if action.Method == "GET" && action.URL != "" {
 				qrCodeURL = action.URL
-				log.Printf("✅ Found QR code URL from GET method: %s", qrCodeURL)
 				break
 			}
 		}
@@ -293,12 +282,8 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 			exp, err := time.Parse(format, midtransResp.ExpiryTime)
 			if err == nil {
 				expiryTime = &exp
-				log.Printf("✅ Parsed expiry time: %s", expiryTime.Format(time.RFC3339))
 				break
 			}
-		}
-		if expiryTime == nil {
-			log.Printf("⚠️  Failed to parse expiry time: %s", midtransResp.ExpiryTime)
 		}
 	}
 
@@ -314,20 +299,9 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 		"updated_at":              time.Now(),
 	}
 
-	if qrCodeURL != "" {
-		log.Printf("💾 Saving QR code URL: %s", qrCodeURL)
-	} else {
-		log.Printf("⚠️  QR code URL is empty, payment may not have QR code")
-	}
-
 	if err := db.Model(&payment).Updates(updateData).Error; err != nil {
 		log.Printf("⚠️  Failed to update payment: %v", err)
-	} else {
-		log.Printf("✅ Payment updated successfully with QR code URL: %s", qrCodeURL)
 	}
-
-	log.Printf("✅ Payment created: %s - %s - Rp%d", orderID, req.DonorName, req.Amount)
-	log.Printf("📤 Midtrans response: %s", string(body))
 
 	return &payment, nil
 }
@@ -335,45 +309,25 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 // GetPaymentByID retrieves payment by ID
 func GetPaymentByID(id string) (*Payment, error) {
 	var payment Payment
-	log.Printf("🔍 GetPaymentByID: Searching for payment with ID: %s", id)
-
-	// Try direct query without Preload to avoid foreign key issues
 	err := db.Where("id = ?", id).First(&payment).Error
 	if err != nil {
-		log.Printf("❌ GetPaymentByID: Payment not found - %v", err)
-		// Try to check if payment exists with raw query
-		var count int64
-		db.Raw("SELECT COUNT(*) FROM payments WHERE id = ?", id).Scan(&count)
-		log.Printf("🔍 GetPaymentByID: Direct SQL count for ID %s: %d", id, count)
-
-		// Also check what IDs exist in database
-		var existingIDs []string
-		db.Raw("SELECT id FROM payments LIMIT 5").Scan(&existingIDs)
-		log.Printf("🔍 GetPaymentByID: Sample IDs in database: %v", existingIDs)
-
 		return nil, err
 	}
-	log.Printf("✅ GetPaymentByID: Found payment - ID: %s, OrderID: %s", payment.ID, payment.OrderID)
 	return &payment, nil
 }
 
 // GetPaymentByOrderID retrieves payment by order ID
 func GetPaymentByOrderID(orderID string) (*Payment, error) {
 	var payment Payment
-	log.Printf("🔍 GetPaymentByOrderID: Searching for payment with OrderID: %s", orderID)
 	err := db.Where("order_id = ?", orderID).First(&payment).Error
 	if err != nil {
-		log.Printf("❌ GetPaymentByOrderID: Payment not found - %v", err)
 		return nil, err
 	}
-	log.Printf("✅ GetPaymentByOrderID: Found payment - ID: %s, OrderID: %s", payment.ID, payment.OrderID)
 	return &payment, nil
 }
 
 // CheckPaymentStatusFromMidtrans checks payment status from Midtrans API
 func CheckPaymentStatusFromMidtrans(orderID string) error {
-	log.Printf("🔍 Checking payment status from Midtrans for OrderID: %s", orderID)
-
 	// Get payment from database first
 	var payment Payment
 	if err := db.Where("order_id = ?", orderID).First(&payment).Error; err != nil {
@@ -382,7 +336,6 @@ func CheckPaymentStatusFromMidtrans(orderID string) error {
 
 	// If already successful, skip check
 	if payment.Status == PaymentStatusSuccess {
-		log.Printf("✅ Payment already successful, skipping check")
 		return nil
 	}
 
@@ -480,18 +433,12 @@ func CheckPaymentStatusFromMidtrans(orderID string) error {
 			exp, err := time.Parse(format, expiry)
 			if err == nil {
 				expiryTime = &exp
-				log.Printf("✅ Parsed expiry time: %s", expiryTime.Format(time.RFC3339))
 				break
 			}
-		}
-		if expiryTime == nil {
-			log.Printf("⚠️  Failed to parse expiry time: %s", expiry)
 		}
 	}
 
 	webhookJSON, _ := json.Marshal(midtransResp)
-
-	log.Printf("📥 Midtrans status check result: %s (OrderID: %s)", transactionStatus, orderID)
 
 	// Update payment status
 	return UpdatePaymentStatus(orderID, transactionStatus, transactionID, vaNumber, bankType, qrCodeURL, expiryTime, string(webhookJSON))
@@ -499,7 +446,6 @@ func CheckPaymentStatusFromMidtrans(orderID string) error {
 
 // UpdatePaymentStatus updates payment status from Midtrans webhook
 func UpdatePaymentStatus(orderID string, status string, transactionID string, vaNumber string, bankType string, qrCodeURL string, expiryTime *time.Time, midtransResponse string) error {
-	log.Printf("🔄 Updating payment status: OrderID=%s, Status=%s", orderID, status)
 
 	paymentStatus := mapMidtransStatusToPaymentStatus(status)
 
@@ -511,7 +457,6 @@ func UpdatePaymentStatus(orderID string, status string, transactionID string, va
 
 	// Preserve existing QR code URL if new one is empty
 	if qrCodeURL == "" && payment.QRCodeURL != "" {
-		log.Printf("⚠️  QR code URL is empty in update, preserving existing: %s", payment.QRCodeURL)
 		qrCodeURL = payment.QRCodeURL
 	}
 
@@ -536,14 +481,6 @@ func UpdatePaymentStatus(orderID string, status string, transactionID string, va
 		"updated_at":              time.Now(),
 	}
 
-	if qrCodeURL != "" {
-		log.Printf("💾 Updating QR code URL: %s", qrCodeURL)
-	} else if payment.QRCodeURL != "" {
-		log.Printf("⚠️  QR code URL is empty, preserving existing: %s", payment.QRCodeURL)
-	}
-
-	// Check if status actually changed
-	oldStatus := payment.Status
 	if err := db.Model(&payment).Updates(updateData).Error; err != nil {
 		log.Printf("❌ Failed to update payment: %v", err)
 		return err
@@ -551,11 +488,8 @@ func UpdatePaymentStatus(orderID string, status string, transactionID string, va
 
 	// Reload payment with updated data
 	if err := db.Where("order_id = ?", orderID).First(&payment).Error; err != nil {
-		log.Printf("❌ Failed to reload payment: %v", err)
 		return err
 	}
-
-	log.Printf("✅ Payment status updated: %s -> %s (OrderID: %s)", oldStatus, payment.Status, orderID)
 
 	// Broadcast payment status update via WebSocket
 	BroadcastPaymentStatus(&payment)
@@ -580,7 +514,6 @@ func UpdatePaymentStatus(orderID string, status string, transactionID string, va
 		if err := db.Create(&history).Error; err != nil {
 			log.Printf("⚠️  Failed to create donation history: %v", err)
 		} else {
-			log.Printf("✅ Donation history created: %s - %s - Rp%d", historyID, payment.DonorName, payment.Amount)
 
 			// Load payment relation before broadcasting
 			history.Payment = &payment

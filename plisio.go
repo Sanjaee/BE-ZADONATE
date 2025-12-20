@@ -288,15 +288,12 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 	}
 	callbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true", backendURL)
 	params.Add("callback_url", callbackURL)
-	log.Printf("🔗 Plisio callback URL: %s", callbackURL)
 
 	// Success and fail callback URLs
 	successCallbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true&type=success", backendURL)
 	failCallbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true&type=fail", backendURL)
 	params.Add("success_callback_url", successCallbackURL)
 	params.Add("fail_callback_url", failCallbackURL)
-	log.Printf("🔗 Plisio success callback URL: %s", successCallbackURL)
-	log.Printf("🔗 Plisio fail callback URL: %s", failCallbackURL)
 
 	// Expiry time (default 24 hours = 1440 minutes)
 	if req.ExpireMin == 0 {
@@ -313,7 +310,6 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 
 	// Build full URL
 	fullURL := fmt.Sprintf("%s?%s", baseURL, params.Encode())
-	log.Printf("🔗 Creating Plisio invoice: %s", fullURL)
 
 	// Create payment record first
 	paymentID := uuid.New().String()
@@ -328,8 +324,6 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 	// Convert to IDR: (USD cents / 100) * USD_TO_IDR_RATE
 	usdAmount := float64(req.Amount) / 100.0
 	amountInIdr := int(usdAmount * USD_TO_IDR_RATE)
-
-	log.Printf("💰 Amount conversion: $%.2f USD (%d cents) = Rp %d IDR", usdAmount, req.Amount, amountInIdr)
 
 	payment := Payment{
 		ID:            paymentID,
@@ -376,8 +370,6 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 		log.Printf("⚠️  Failed to read Plisio response: %v", err)
 		return &payment, nil, fmt.Errorf("failed to read response: %v", err)
 	}
-
-	log.Printf("📥 Plisio response (status %d): %s", resp.StatusCode, string(body))
 
 	// Check HTTP status code
 	if resp.StatusCode != 200 {
@@ -441,11 +433,7 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 
 	if err := db.Model(&payment).Updates(updateData).Error; err != nil {
 		log.Printf("⚠️  Failed to update payment: %v", err)
-	} else {
-		log.Printf("✅ Payment updated with Plisio invoice data")
 	}
-
-	log.Printf("✅ Plisio invoice created: %s - %s - USD %d cents", orderID, req.DonorName, req.Amount)
 
 	return &payment, &invoiceData, nil
 }
@@ -526,7 +514,6 @@ func mapPlisioStatusToPaymentStatus(status string) PaymentStatus {
 
 // UpdatePaymentStatusFromPlisio updates payment status from Plisio webhook
 func UpdatePaymentStatusFromPlisio(callbackData PlisioCallbackData) error {
-	log.Printf("🔄 Updating payment status from Plisio: OrderNumber=%s, Status=%s", callbackData.OrderNumber, callbackData.Status)
 
 	paymentStatus := mapPlisioStatusToPaymentStatus(callbackData.Status)
 
@@ -539,16 +526,11 @@ func UpdatePaymentStatusFromPlisio(callbackData PlisioCallbackData) error {
 		// If not found, try by txn_id (Plisio transaction ID)
 		if callbackData.TxnID != "" {
 			if err := db.Where("midtrans_transaction_id = ?", callbackData.TxnID).First(&payment).Error; err != nil {
-				log.Printf("❌ Payment not found for OrderNumber: %s, TxnID: %s", callbackData.OrderNumber, callbackData.TxnID)
 				return fmt.Errorf("payment not found for order_number: %s", callbackData.OrderNumber)
 			}
-			log.Printf("✅ Found payment by txn_id: %s", callbackData.TxnID)
 		} else {
-			log.Printf("❌ Payment not found for OrderNumber: %s", callbackData.OrderNumber)
 			return fmt.Errorf("payment not found for order_number: %s", callbackData.OrderNumber)
 		}
-	} else {
-		log.Printf("✅ Found payment by order_number: %s", callbackData.OrderNumber)
 	}
 
 	// Parse expiry time if available
@@ -589,8 +571,6 @@ func UpdatePaymentStatusFromPlisio(callbackData PlisioCallbackData) error {
 		updateData["plisio_psys_cid"] = callbackData.PsysCid
 	}
 
-	// Check if status actually changed
-	oldStatus := payment.Status
 	if err := db.Model(&payment).Updates(updateData).Error; err != nil {
 		log.Printf("❌ Failed to update payment: %v", err)
 		return err
@@ -598,11 +578,8 @@ func UpdatePaymentStatusFromPlisio(callbackData PlisioCallbackData) error {
 
 	// Reload payment with updated data
 	if err := db.Where("id = ?", payment.ID).First(&payment).Error; err != nil {
-		log.Printf("❌ Failed to reload payment: %v", err)
 		return err
 	}
-
-	log.Printf("✅ Payment status updated: %s -> %s (OrderID: %s)", oldStatus, payment.Status, payment.OrderID)
 
 	// Broadcast payment status update via WebSocket
 	BroadcastPaymentStatus(&payment)
@@ -627,7 +604,6 @@ func UpdatePaymentStatusFromPlisio(callbackData PlisioCallbackData) error {
 		if err := db.Create(&history).Error; err != nil {
 			log.Printf("⚠️  Failed to create donation history: %v", err)
 		} else {
-			log.Printf("✅ Donation history created: %s - %s - Rp%d", historyID, payment.DonorName, payment.Amount)
 
 			// Load payment relation before broadcasting
 			history.Payment = &payment
@@ -664,8 +640,6 @@ func GetPlisioCurrencies(sourceCurrency string) ([]PlisioCurrency, error) {
 	baseURL := fmt.Sprintf("%s/currencies", PLISIO_BASE_URL)
 	fullURL := fmt.Sprintf("%s?api_key=%s", baseURL, apiKey)
 
-	log.Printf("🔗 Fetching Plisio currencies: %s", fullURL)
-
 	httpReq, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
@@ -687,8 +661,6 @@ func GetPlisioCurrencies(sourceCurrency string) ([]PlisioCurrency, error) {
 		log.Printf("❌ Failed to read response: %v", err)
 		return nil, fmt.Errorf("failed to read response: %v", err)
 	}
-
-	log.Printf("📥 Plisio currencies response (status %d): %s", resp.StatusCode, string(body))
 
 	// Check HTTP status code
 	if resp.StatusCode != 200 {
@@ -735,6 +707,5 @@ func GetPlisioCurrencies(sourceCurrency string) ([]PlisioCurrency, error) {
 		return nil, fmt.Errorf("failed to parse currencies data: %v", err)
 	}
 
-	log.Printf("✅ Fetched %d cryptocurrencies from Plisio", len(currencies))
 	return currencies, nil
 }

@@ -142,7 +142,6 @@ func PublishDonation(job DonationJob) error {
 		return processDonationDirectly(job)
 	}
 
-	log.Printf("📤 Published donation to queue: %s - %d", job.DonorName, job.Amount)
 	return nil
 }
 
@@ -169,9 +168,10 @@ func processDonationDirectly(job DonationJob) error {
 	} else if job.Type == "text" {
 		// Broadcast text donation with duration
 		BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs)
+	} else {
+		log.Printf("⚠️  Unknown donation type (direct): %s (ID: %s)", job.Type, job.ID)
 	}
 
-	log.Printf("✅ Donation processed directly: %s - %d (ID: %s, duration: %v)", job.DonorName, job.Amount, job.ID, waitDuration)
 	return nil
 }
 
@@ -215,7 +215,7 @@ func StartDonationWorker() {
 		for msg := range msgs {
 			var job DonationJob
 			if err := json.Unmarshal(msg.Body, &job); err != nil {
-				log.Printf("Error unmarshaling job: %v", err)
+				log.Printf("❌ Error unmarshaling job: %v", err)
 				msg.Nack(false, false) // Reject and don't requeue
 				continue
 			}
@@ -225,8 +225,6 @@ func StartDonationWorker() {
 			currentDonation = &job
 			isPaused = false
 			pauseMutex.Unlock()
-
-			log.Printf("📥 Processing donation: %s - %d (type: %s)", job.DonorName, job.Amount, job.Type)
 
 			// Calculate display duration based on donation amount
 			waitDuration := calculateDisplayDuration(job.Amount)
@@ -259,6 +257,8 @@ func StartDonationWorker() {
 			} else if job.Type == "text" {
 				// Broadcast text donation with duration
 				BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs)
+			} else {
+				log.Printf("⚠️  Unknown donation type: %s (ID: %s)", job.Type, job.ID)
 			}
 
 			// Wait for donation to complete or be paused
@@ -266,8 +266,6 @@ func StartDonationWorker() {
 			startTime := time.Now()
 			elapsedBeforePause := time.Duration(0)
 			pauseStartTime := time.Time{}
-
-			log.Printf("⏱️  Donation display duration: %v (amount: %d, ID: %s)", waitDuration, job.Amount, job.ID)
 
 			for {
 				pauseMutex.RLock()
@@ -279,17 +277,12 @@ func StartDonationWorker() {
 					if pauseStartTime.IsZero() {
 						elapsedBeforePause = time.Since(startTime)
 						pauseStartTime = time.Now()
-						log.Printf("⏸️  Donation paused: %s - %d (ID: %s, elapsed: %v, remaining: %v)",
-							job.DonorName, job.Amount, job.ID, elapsedBeforePause, waitDuration-elapsedBeforePause)
 					}
 					// Wait for resume signal
 					select {
 					case <-pauseChan:
 						// Resume signal received
 						if !pauseStartTime.IsZero() {
-							pauseDuration := time.Since(pauseStartTime)
-							log.Printf("▶️  Donation resumed: %s - %d (ID: %s, paused for %v, remaining: %v)",
-								job.DonorName, job.Amount, job.ID, pauseDuration, waitDuration-elapsedBeforePause)
 							// Reset start time to continue from where we paused
 							startTime = time.Now().Add(-elapsedBeforePause)
 							pauseStartTime = time.Time{}
@@ -308,12 +301,8 @@ func StartDonationWorker() {
 				}
 			}
 
-			log.Printf("✅ Donation display completed: %s - %d (ID: %s, duration: %v)",
-				job.DonorName, job.Amount, job.ID, waitDuration)
-
 			// Acknowledge message after successful processing
 			msg.Ack(false)
-			log.Printf("✅ Donation processed: %s - %d", job.DonorName, job.Amount)
 
 			// Clear current donation
 			pauseMutex.Lock()

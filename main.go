@@ -486,28 +486,23 @@ func main() {
 	// Get payment by ID (UUID) or Order ID
 	r.GET("/payment/:id", func(c *gin.Context) {
 		idStr := c.Param("id")
-		log.Printf("🔍 GET /payment/:id - Looking up payment with ID: %s", idStr)
 
 		var payment *Payment
 		var err error
 
 		// Check if it's an Order ID (starts with "DONATE_")
 		if strings.HasPrefix(idStr, "DONATE_") {
-			log.Printf("📋 Treating as Order ID")
 			payment, err = GetPaymentByOrderID(idStr)
 		} else {
 			// Try as Payment ID (UUID)
-			log.Printf("🔑 Treating as Payment ID (UUID)")
 			payment, err = GetPaymentByID(idStr)
 			// If not found as UUID, try as Order ID (for backward compatibility)
 			if err != nil {
-				log.Printf("⚠️  Not found as UUID, trying as Order ID: %v", err)
 				payment, err = GetPaymentByOrderID(idStr)
 			}
 		}
 
 		if err != nil {
-			log.Printf("❌ Payment not found: %v", err)
 			c.JSON(404, gin.H{
 				"success": false,
 				"error":   "Payment not found",
@@ -515,8 +510,6 @@ func main() {
 			})
 			return
 		}
-
-		log.Printf("✅ Payment found: %s (OrderID: %s)", payment.ID, payment.OrderID)
 		c.JSON(200, gin.H{
 			"success": true,
 			"data":    payment,
@@ -536,8 +529,6 @@ func main() {
 			})
 			return
 		}
-
-		log.Printf("🔍 Manual status check requested for OrderID: %s", req.OrderID)
 
 		if err := CheckPaymentStatusFromMidtrans(req.OrderID); err != nil {
 			c.JSON(500, gin.H{
@@ -566,11 +557,8 @@ func main() {
 
 	// Midtrans webhook
 	r.POST("/payment/webhook", func(c *gin.Context) {
-		log.Printf("📥 Received webhook from Midtrans")
-
 		var webhookData map[string]interface{}
 		if err := c.ShouldBindJSON(&webhookData); err != nil {
-			log.Printf("❌ Invalid webhook data: %v", err)
 			c.JSON(400, gin.H{
 				"success": false,
 				"error":   "Invalid webhook data",
@@ -578,13 +566,10 @@ func main() {
 			return
 		}
 
-		// Log webhook data for debugging
 		webhookJSON, _ := json.Marshal(webhookData)
-		log.Printf("📥 Webhook data: %s", string(webhookJSON))
 
 		orderID, ok := webhookData["order_id"].(string)
 		if !ok {
-			log.Printf("❌ Missing order_id in webhook")
 			c.JSON(400, gin.H{
 				"success": false,
 				"error":   "Missing order_id",
@@ -592,12 +577,8 @@ func main() {
 			return
 		}
 
-		log.Printf("📥 Processing webhook for OrderID: %s", orderID)
-
 		transactionStatus, _ := webhookData["transaction_status"].(string)
 		transactionID, _ := webhookData["transaction_id"].(string)
-
-		log.Printf("📥 Transaction Status: %s, Transaction ID: %s", transactionStatus, transactionID)
 
 		var vaNumber, bankType, qrCodeURL string
 		if vaNumbers, ok := webhookData["va_numbers"].([]interface{}); ok && len(vaNumbers) > 0 {
@@ -627,15 +608,12 @@ func main() {
 		}
 
 		if err := UpdatePaymentStatus(orderID, transactionStatus, transactionID, vaNumber, bankType, qrCodeURL, expiryTime, string(webhookJSON)); err != nil {
-			log.Printf("❌ Failed to update payment status: %v", err)
 			c.JSON(500, gin.H{
 				"success": false,
 				"error":   "Failed to update payment: " + err.Error(),
 			})
 			return
 		}
-
-		log.Printf("✅ Webhook processed successfully for OrderID: %s", orderID)
 		c.JSON(200, gin.H{
 			"success": true,
 			"message": "Webhook processed",
@@ -677,21 +655,14 @@ func main() {
 
 	// Plisio webhook
 	r.POST("/payment/plisio/webhook", func(c *gin.Context) {
-		log.Printf("📥 Received webhook from Plisio")
-
 		var webhookData map[string]interface{}
 		if err := c.ShouldBindJSON(&webhookData); err != nil {
-			log.Printf("❌ Invalid webhook data: %v", err)
 			c.JSON(400, gin.H{
 				"success": false,
 				"error":   "Invalid webhook data",
 			})
 			return
 		}
-
-		// Log webhook data for debugging
-		webhookJSON, _ := json.Marshal(webhookData)
-		log.Printf("📥 Plisio webhook data: %s", string(webhookJSON))
 
 		// Verify callback data
 		if !VerifyPlisioCallback(webhookData) {
@@ -715,18 +686,13 @@ func main() {
 			return
 		}
 
-		log.Printf("📥 Processing Plisio webhook for OrderNumber: %s, Status: %s", callbackData.OrderNumber, callbackData.Status)
-
 		if err := UpdatePaymentStatusFromPlisio(callbackData); err != nil {
-			log.Printf("❌ Failed to update payment status: %v", err)
 			c.JSON(500, gin.H{
 				"success": false,
 				"error":   "Failed to update payment: " + err.Error(),
 			})
 			return
 		}
-
-		log.Printf("✅ Plisio webhook processed successfully for OrderNumber: %s", callbackData.OrderNumber)
 		c.JSON(200, gin.H{
 			"success": true,
 			"message": "Webhook processed",
@@ -735,20 +701,16 @@ func main() {
 
 	// Get supported cryptocurrencies
 	r.GET("/payment/plisio/currencies", func(c *gin.Context) {
-		log.Printf("📥 GET /payment/plisio/currencies - Request received")
 		sourceCurrency := c.DefaultQuery("sourceCurrency", "")
 
 		currencies, err := GetPlisioCurrencies(sourceCurrency)
 		if err != nil {
-			log.Printf("❌ Failed to fetch currencies: %v", err)
 			c.JSON(500, gin.H{
 				"success": false,
 				"error":   "Failed to fetch currencies: " + err.Error(),
 			})
 			return
 		}
-
-		log.Printf("✅ Successfully fetched %d currencies", len(currencies))
 		c.JSON(200, gin.H{
 			"success": true,
 			"data":    currencies,

@@ -86,7 +86,6 @@ func (h *Hub) run() {
 			if h.pendingDonation != nil {
 				select {
 				case client.send <- h.pendingDonation:
-					log.Printf("📤 Sent pending donation to newly connected client")
 				default:
 					// Channel full, skip
 				}
@@ -94,7 +93,6 @@ func (h *Hub) run() {
 			if h.pendingMedia != nil {
 				select {
 				case client.send <- h.pendingMedia:
-					log.Printf("📤 Sent pending media to newly connected client")
 				default:
 					// Channel full, skip
 				}
@@ -137,12 +135,6 @@ func (h *Hub) run() {
 						h.mu.Unlock()
 					}
 				}
-			}
-
-			if len(clients) == 0 {
-				log.Printf("⚠️  No WebSocket clients connected to receive message (type: %s), stored for reconnection", msgType)
-			} else {
-				log.Printf("📤 Broadcasting message to %d client(s) (type: %s)", len(clients), msgType)
 			}
 
 			for _, client := range clients {
@@ -251,7 +243,6 @@ func BroadcastDonation(id, donorName string, amount int, message string, duratio
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted donation: %s - %d (ID: %s, duration: %dms)", donorName, amount, id, durationMs)
 }
 
 // BroadcastMedia sends a media update to all connected clients (auto-visible)
@@ -273,7 +264,6 @@ func BroadcastMedia(id, mediaURL, mediaType string, startTime int) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted media: %s (%s) startTime: %d (ID: %s)", mediaURL, mediaType, startTime, id)
 }
 
 // BroadcastVisibility sends a visibility update to all connected clients
@@ -291,7 +281,6 @@ func BroadcastVisibility(id string, visible bool) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted visibility: %v (ID: %s)", visible, id)
 }
 
 // BroadcastTime sends a time countdown target to all connected clients
@@ -308,7 +297,6 @@ func BroadcastTime(targetTime string) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted time target: %s", targetTime)
 }
 
 // BroadcastHistory sends a new donation history to all connected clients
@@ -353,7 +341,6 @@ func BroadcastHistory(history *DonationHistory) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("📤 Broadcasted history: %s - %s - Rp%d", history.ID, history.DonorName, history.Amount)
 }
 
 // BroadcastPaymentStatus sends payment status update to all connected clients
@@ -386,7 +373,6 @@ func BroadcastPaymentStatus(payment *Payment) {
 	}
 
 	hub.broadcast <- data
-	log.Printf("📤 Broadcasted payment status: %s - %s - %s", payment.OrderID, payment.DonorName, payment.Status)
 }
 
 // BroadcastText sends a text-only donation message to all connected clients
@@ -407,5 +393,4 @@ func BroadcastText(id, donorName string, amount int, message string, durationMs 
 	}
 
 	hub.broadcast <- data
-	log.Printf("Broadcasted text: %s - %d (ID: %s, duration: %dms)", donorName, amount, id, durationMs)
 }
