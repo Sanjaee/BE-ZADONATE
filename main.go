@@ -143,12 +143,28 @@ func main() {
 
 	r := gin.Default()
 
+	// Custom recovery middleware that always returns JSON
+	r.Use(func(c *gin.Context) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("❌ Panic recovered: %v", err)
+				c.JSON(500, gin.H{
+					"success": false,
+					"error":   "Internal server error",
+				})
+				c.Abort()
+			}
+		}()
+		c.Next()
+	})
+
 	// CORS middleware
 	r.Use(func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+		c.Writer.Header().Set("Content-Type", "application/json")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -168,6 +184,9 @@ func main() {
 	// Login endpoint with dummy admin credentials
 	r.POST("/api/v1/auth/login", func(c *gin.Context) {
 		log.Printf("🔐 Login endpoint called: %s %s", c.Request.Method, c.Request.URL.Path)
+
+		// Ensure JSON response
+		c.Header("Content-Type", "application/json")
 
 		var req struct {
 			Email    string `json:"email" binding:"required"`
@@ -189,6 +208,7 @@ func main() {
 
 		// Check credentials
 		if req.Email != adminEmail || req.Password != adminPassword {
+			log.Printf("❌ Login failed: Invalid credentials for email %s", req.Email)
 			c.JSON(401, gin.H{
 				"success": false,
 				"error":   "Invalid email or password",
