@@ -99,12 +99,15 @@ func main() {
 
 	// Login endpoint with dummy admin credentials
 	r.POST("/api/v1/auth/login", func(c *gin.Context) {
+		log.Printf("🔐 Login endpoint called: %s %s", c.Request.Method, c.Request.URL.Path)
+
 		var req struct {
 			Email    string `json:"email" binding:"required"`
 			Password string `json:"password" binding:"required"`
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("❌ Login error: Invalid request body - %v", err)
 			c.JSON(400, gin.H{
 				"success": false,
 				"error":   "Invalid request body",
@@ -766,7 +769,14 @@ func main() {
 		})
 	})
 
+	// Print all registered routes for debugging
 	log.Println("🚀 API running on :" + port)
+	log.Println("📋 Registered Routes:")
+	for _, route := range r.Routes() {
+		log.Printf("   %-6s %s", route.Method, route.Path)
+	}
+	log.Println("🔐 Auth Endpoints:")
+	log.Println("   POST /api/v1/auth/login")
 	log.Println("🔌 WebSocket:")
 	log.Println("   WS   /ws")
 	log.Println("🎯 Hit Endpoints:")
