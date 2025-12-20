@@ -6,11 +6,39 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+// In-memory session store for admin tokens
+var (
+	sessionStore = make(map[string]bool) // token -> isAdmin
+	sessionMutex sync.RWMutex
+)
+
+// addAdminSession adds a token to the session store
+func addAdminSession(token string) {
+	sessionMutex.Lock()
+	defer sessionMutex.Unlock()
+	sessionStore[token] = true
+}
+
+// isAdminToken checks if a token is valid admin token
+func isAdminToken(token string) bool {
+	sessionMutex.RLock()
+	defer sessionMutex.RUnlock()
+	return sessionStore[token]
+}
+
+// removeAdminSession removes a token from the session store
+func removeAdminSession(token string) {
+	sessionMutex.Lock()
+	defer sessionMutex.Unlock()
+	delete(sessionStore, token)
+}
 
 // detectMediaType detects if URL is video, image, YouTube, Instagram Reels, or TikTok based on URL
 func detectMediaType(url string) string {
@@ -130,11 +158,15 @@ func main() {
 
 		// Generate simple token (in production, use JWT)
 		userID := uuid.New().String()
+		accessToken := userID
+
+		// Store token in session store
+		addAdminSession(accessToken)
 
 		c.JSON(200, gin.H{
 			"success":       true,
-			"access_token":  userID,
-			"refresh_token": userID + "_refresh",
+			"access_token":  accessToken,
+			"refresh_token": accessToken + "_refresh",
 			"user": gin.H{
 				"id":          userID,
 				"email":       adminEmail,
@@ -151,10 +183,117 @@ func main() {
 	// WebSocket endpoint for realtime updates
 	r.GET("/ws", ServeWS)
 
-	// ========== HIT ENDPOINTS ==========
+	// ========== HIT ENDPOINTS (PUBLIC) ==========
+
+	// HIT HISTORY - Get donation history (gif and text only) - PUBLIC, but only from frontend
+	r.GET("/hit/history", func(c *gin.Context) {
+		// Check if request comes from frontend application (has Origin or Referer header)
+		origin := c.GetHeader("Origin")
+		referer := c.GetHeader("Referer")
+
+		// Get allowed frontend URL from environment variable
+		frontendURL := os.Getenv("FRONTEND_URL")
+		if frontendURL == "" {
+			frontendURL = "http://localhost:3000"
+		}
+
+		// Check if request has Origin or Referer header (indicates it's from frontend)
+		// Block direct browser access (no Origin/Referer header)
+		if origin == "" && referer == "" {
+			c.JSON(403, gin.H{
+				"success": false,
+				"error":   "Direct browser access is not allowed. This endpoint can only be accessed from the application.",
+			})
+			return
+		}
+
+		// Optional: Validate Origin/Referer matches allowed frontend URL
+		if frontendURL != "" {
+			allowedOrigin := strings.TrimSuffix(frontendURL, "/")
+			if origin != "" && !strings.HasPrefix(origin, allowedOrigin) &&
+				!strings.HasPrefix(origin, "http://localhost") &&
+				!strings.HasPrefix(origin, "https://") {
+				c.JSON(403, gin.H{
+					"success": false,
+					"error":   "Origin not allowed",
+				})
+				return
+			}
+		}
+
+		limitStr := c.DefaultQuery("limit", "50")
+		offsetStr := c.DefaultQuery("offset", "0")
+
+		limit, err := strconv.Atoi(limitStr)
+		if err != nil || limit <= 0 || limit > 100 {
+			limit = 50
+		}
+
+		offset, err := strconv.Atoi(offsetStr)
+		if err != nil || offset < 0 {
+			offset = 0
+		}
+
+		history, err := GetDonationHistory(limit, offset)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to retrieve donation history: " + err.Error(),
+			})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"success": true,
+			"data":    history,
+			"limit":   limit,
+			"offset":  offset,
+		})
+	})
+
+	// ========== AUTHENTICATION MIDDLEWARE ==========
+
+	// Middleware to check admin authentication for /hit/* endpoints
+	adminAuthMiddleware := func(c *gin.Context) {
+		// Get token from Authorization header
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(401, gin.H{
+				"success": false,
+				"error":   "Authorization header is required",
+			})
+			c.Abort()
+			return
+		}
+
+		// Extract token from "Bearer <token>" or just "<token>"
+		token := authHeader
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			token = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+
+		// Check if token is valid admin token
+		if !isAdminToken(token) {
+			c.JSON(401, gin.H{
+				"success": false,
+				"error":   "Invalid or expired token. Please login as admin.",
+			})
+			c.Abort()
+			return
+		}
+
+		// Token is valid, continue to handler
+		c.Next()
+	}
+
+	// Create a group for /hit endpoints with admin auth middleware
+	hitGroup := r.Group("/hit")
+	hitGroup.Use(adminAuthMiddleware)
+
+	// ========== HIT ENDPOINTS (PROTECTED) ==========
 
 	// HIT GIF - Trigger donation with image/video (realtime)
-	r.POST("/hit/gif", func(c *gin.Context) {
+	hitGroup.POST("/gif", func(c *gin.Context) {
 		var req struct {
 			ImageURL   string      `json:"imageUrl,omitempty"` // Image/Video URL (legacy support)
 			MediaURL   string      `json:"mediaUrl,omitempty"` // Image/Video URL
@@ -263,7 +402,7 @@ func main() {
 	})
 
 	// HIT TIME - Set countdown timer target (realtime)
-	r.POST("/hit/time", func(c *gin.Context) {
+	hitGroup.POST("/time", func(c *gin.Context) {
 		var req struct {
 			TargetTime string `json:"targetTime"` // Format: "YYYY-MM-DDTHH:mm:ss" or "YYYY-MM-DD HH:mm:ss"
 		}
@@ -312,7 +451,7 @@ func main() {
 	})
 
 	// HIT PAUSE - Pause the currently processing donation
-	r.POST("/hit/pause", func(c *gin.Context) {
+	hitGroup.POST("/pause", func(c *gin.Context) {
 		success := PauseDonation()
 		if !success {
 			c.JSON(400, gin.H{
@@ -332,7 +471,7 @@ func main() {
 	})
 
 	// HIT RESUME - Resume the paused donation
-	r.POST("/hit/resume", func(c *gin.Context) {
+	hitGroup.POST("/resume", func(c *gin.Context) {
 		success := ResumeDonation()
 		if !success {
 			c.JSON(400, gin.H{
@@ -352,7 +491,7 @@ func main() {
 	})
 
 	// HIT STATUS - Get current donation status
-	r.GET("/hit/status", func(c *gin.Context) {
+	hitGroup.GET("/status", func(c *gin.Context) {
 		isPaused, donation := GetCurrentDonationStatus()
 		if donation == nil {
 			c.JSON(200, gin.H{
@@ -372,7 +511,7 @@ func main() {
 	})
 
 	// HIT RESET - Clear all queues and reset state
-	r.POST("/hit/reset", func(c *gin.Context) {
+	hitGroup.POST("/reset", func(c *gin.Context) {
 		if err := ClearAllQueuesAndReset(); err != nil {
 			c.JSON(500, gin.H{
 				"success": false,
@@ -388,7 +527,7 @@ func main() {
 	})
 
 	// HIT TEXT - Trigger text-only donation alert with TTS (realtime)
-	r.POST("/hit/text", func(c *gin.Context) {
+	hitGroup.POST("/text", func(c *gin.Context) {
 		var req struct {
 			DonorName string `json:"donorName"` // Donor name
 			Amount    int    `json:"amount"`    // Donation amount (integer)
@@ -450,38 +589,6 @@ func main() {
 	if port == "" {
 		port = "5000"
 	}
-
-	// HIT HISTORY - Get donation history (gif and text only)
-	r.GET("/hit/history", func(c *gin.Context) {
-		limitStr := c.DefaultQuery("limit", "50")
-		offsetStr := c.DefaultQuery("offset", "0")
-
-		limit, err := strconv.Atoi(limitStr)
-		if err != nil || limit <= 0 || limit > 100 {
-			limit = 50
-		}
-
-		offset, err := strconv.Atoi(offsetStr)
-		if err != nil || offset < 0 {
-			offset = 0
-		}
-
-		history, err := GetDonationHistory(limit, offset)
-		if err != nil {
-			c.JSON(500, gin.H{
-				"success": false,
-				"error":   "Failed to retrieve donation history: " + err.Error(),
-			})
-			return
-		}
-
-		c.JSON(200, gin.H{
-			"success": true,
-			"data":    history,
-			"limit":   limit,
-			"offset":  offset,
-		})
-	})
 
 	// PAYMENT ENDPOINTS
 	// Create payment
