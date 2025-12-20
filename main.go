@@ -30,7 +30,21 @@ func addAdminSession(token string) {
 func isAdminToken(token string) bool {
 	sessionMutex.RLock()
 	defer sessionMutex.RUnlock()
-	return sessionStore[token]
+
+	// Log all tokens in store for debugging
+	log.Printf("🔍 Checking token: %s", token)
+	log.Printf("🔍 Session store has %d tokens", len(sessionStore))
+	for storedToken := range sessionStore {
+		if len(storedToken) > 10 {
+			log.Printf("🔍 Stored token: %s...", storedToken[:10])
+		} else {
+			log.Printf("🔍 Stored token: %s", storedToken)
+		}
+	}
+
+	isValid := sessionStore[token]
+	log.Printf("🔍 Token valid: %v", isValid)
+	return isValid
 }
 
 // removeAdminSession removes a token from the session store
@@ -162,6 +176,7 @@ func main() {
 
 		// Store token in session store
 		addAdminSession(accessToken)
+		log.Printf("✅ Token stored: %s (length: %d)", accessToken, len(accessToken))
 
 		c.JSON(200, gin.H{
 			"success":       true,
@@ -258,6 +273,7 @@ func main() {
 		// Get token from Authorization header
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
+			log.Printf("❌ Authorization header missing for %s %s", c.Request.Method, c.Request.URL.Path)
 			c.JSON(401, gin.H{
 				"success": false,
 				"error":   "Authorization header is required",
@@ -272,8 +288,16 @@ func main() {
 			token = strings.TrimPrefix(authHeader, "Bearer ")
 		}
 
+		// Log token for debugging (only first few chars for security)
+		if len(token) > 10 {
+			log.Printf("🔐 Checking token: %s... (length: %d)", token[:10], len(token))
+		} else {
+			log.Printf("🔐 Checking token: %s (length: %d)", token, len(token))
+		}
+
 		// Check if token is valid admin token
 		if !isAdminToken(token) {
+			log.Printf("❌ Invalid token for %s %s", c.Request.Method, c.Request.URL.Path)
 			c.JSON(401, gin.H{
 				"success": false,
 				"error":   "Invalid or expired token. Please login as admin.",
@@ -282,6 +306,7 @@ func main() {
 			return
 		}
 
+		log.Printf("✅ Token validated successfully for %s %s", c.Request.Method, c.Request.URL.Path)
 		// Token is valid, continue to handler
 		c.Next()
 	}
