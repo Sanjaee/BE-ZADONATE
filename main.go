@@ -6,53 +6,79 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-// In-memory session store for admin tokens
-var (
-	sessionStore = make(map[string]bool) // token -> isAdmin
-	sessionMutex sync.RWMutex
-)
-
-// addAdminSession adds a token to the session store
-func addAdminSession(token string) {
-	sessionMutex.Lock()
-	defer sessionMutex.Unlock()
-	sessionStore[token] = true
+// JWT Claims structure
+type Claims struct {
+	UserID   string `json:"user_id"`
+	Email    string `json:"email"`
+	UserType string `json:"user_type"`
+	jwt.RegisteredClaims
 }
 
-// isAdminToken checks if a token is valid admin token
-func isAdminToken(token string) bool {
-	sessionMutex.RLock()
-	defer sessionMutex.RUnlock()
+// Get JWT secret from environment variable (same as NEXTAUTH_SECRET)
+func getJWTSecret() []byte {
+	secret := os.Getenv("NEXTAUTH_SECRET")
+	if secret == "" {
+		// Default secret key (same as NextAuth fallback)
+		secret = "K1E90c5WRly4i69szH9xjkUF-0rDM-tl3WKA06hMayTBDvuOmjjsj3z_i_f7NIFk"
+		log.Printf("⚠️  NEXTAUTH_SECRET not set, using default secret")
+	}
+	return []byte(secret)
+}
 
-	// Log all tokens in store for debugging
-	log.Printf("🔍 Checking token: %s", token)
-	log.Printf("🔍 Session store has %d tokens", len(sessionStore))
-	for storedToken := range sessionStore {
-		if len(storedToken) > 10 {
-			log.Printf("🔍 Stored token: %s...", storedToken[:10])
-		} else {
-			log.Printf("🔍 Stored token: %s", storedToken)
-		}
+// GenerateJWT generates a JWT token for the user
+func GenerateJWT(userID, email, userType string) (string, error) {
+	claims := Claims{
+		UserID:   userID,
+		Email:    email,
+		UserType: userType,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)), // 7 days
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			ID:        uuid.New().String(),
+		},
 	}
 
-	isValid := sessionStore[token]
-	log.Printf("🔍 Token valid: %v", isValid)
-	return isValid
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(getJWTSecret())
+	if err != nil {
+		return "", err
+	}
+
+	return tokenString, nil
 }
 
-// removeAdminSession removes a token from the session store
-func removeAdminSession(token string) {
-	sessionMutex.Lock()
-	defer sessionMutex.Unlock()
-	delete(sessionStore, token)
+// VerifyJWT verifies and parses a JWT token
+func VerifyJWT(tokenString string) (*Claims, error) {
+	claims := &Claims{}
+
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		// Validate signing method
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return getJWTSecret(), nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if !token.Valid {
+		return nil, jwt.ErrSignatureInvalid
+	}
+
+	return claims, nil
 }
+
+// Note: Old session store functions removed - now using JWT tokens
 
 // detectMediaType detects if URL is video, image, YouTube, Instagram Reels, or TikTok based on URL
 func detectMediaType(url string) string {
@@ -170,13 +196,19 @@ func main() {
 			return
 		}
 
-		// Generate simple token (in production, use JWT)
+		// Generate JWT token
 		userID := uuid.New().String()
-		accessToken := userID
+		accessToken, err := GenerateJWT(userID, adminEmail, "admin")
+		if err != nil {
+			log.Printf("❌ Failed to generate JWT token: %v", err)
+			c.JSON(500, gin.H{
+				"success": false,
+				"error":   "Failed to generate token",
+			})
+			return
+		}
 
-		// Store token in session store
-		addAdminSession(accessToken)
-		log.Printf("✅ Token stored: %s (length: %d)", accessToken, len(accessToken))
+		log.Printf("✅ JWT token generated successfully (length: %d)", len(accessToken))
 
 		c.JSON(200, gin.H{
 			"success":       true,
@@ -283,21 +315,15 @@ func main() {
 		}
 
 		// Extract token from "Bearer <token>" or just "<token>"
-		token := authHeader
+		tokenString := authHeader
 		if strings.HasPrefix(authHeader, "Bearer ") {
-			token = strings.TrimPrefix(authHeader, "Bearer ")
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
 		}
 
-		// Log token for debugging (only first few chars for security)
-		if len(token) > 10 {
-			log.Printf("🔐 Checking token: %s... (length: %d)", token[:10], len(token))
-		} else {
-			log.Printf("🔐 Checking token: %s (length: %d)", token, len(token))
-		}
-
-		// Check if token is valid admin token
-		if !isAdminToken(token) {
-			log.Printf("❌ Invalid token for %s %s", c.Request.Method, c.Request.URL.Path)
+		// Verify JWT token
+		claims, err := VerifyJWT(tokenString)
+		if err != nil {
+			log.Printf("❌ JWT verification failed for %s %s: %v", c.Request.Method, c.Request.URL.Path, err)
 			c.JSON(401, gin.H{
 				"success": false,
 				"error":   "Invalid or expired token. Please login as admin.",
@@ -306,7 +332,18 @@ func main() {
 			return
 		}
 
-		log.Printf("✅ Token validated successfully for %s %s", c.Request.Method, c.Request.URL.Path)
+		// Check if user is admin
+		if claims.UserType != "admin" {
+			log.Printf("❌ User is not admin: %s", claims.Email)
+			c.JSON(403, gin.H{
+				"success": false,
+				"error":   "Access denied. Admin privileges required.",
+			})
+			c.Abort()
+			return
+		}
+
+		log.Printf("✅ JWT token validated successfully for %s %s (user: %s)", c.Request.Method, c.Request.URL.Path, claims.Email)
 		// Token is valid, continue to handler
 		c.Next()
 	}
