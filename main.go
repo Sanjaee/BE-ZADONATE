@@ -95,6 +95,54 @@ func main() {
 		c.String(200, "OK")
 	})
 
+	// ========== AUTH ENDPOINTS ==========
+
+	// Login endpoint with dummy admin credentials
+	r.POST("/api/v1/auth/login", func(c *gin.Context) {
+		var req struct {
+			Email    string `json:"email" binding:"required"`
+			Password string `json:"password" binding:"required"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "Invalid request body",
+			})
+			return
+		}
+
+		// Dummy admin credentials
+		const adminEmail = "admin@donate.com"
+		const adminPassword = "admin123"
+
+		// Check credentials
+		if req.Email != adminEmail || req.Password != adminPassword {
+			c.JSON(401, gin.H{
+				"success": false,
+				"error":   "Invalid email or password",
+			})
+			return
+		}
+
+		// Generate simple token (in production, use JWT)
+		userID := uuid.New().String()
+
+		c.JSON(200, gin.H{
+			"success":       true,
+			"access_token":  userID,
+			"refresh_token": userID + "_refresh",
+			"user": gin.H{
+				"id":          userID,
+				"email":       adminEmail,
+				"full_name":   "Admin",
+				"is_verified": true,
+				"user_type":   "admin",
+				"login_type":  "credential",
+			},
+		})
+	})
+
 	// ========== WEBSOCKET ENDPOINTS ==========
 
 	// WebSocket endpoint for realtime updates
