@@ -226,14 +226,18 @@ func ServeWS(c *gin.Context) {
 }
 
 // BroadcastDonation sends a donation message to all connected clients (auto-visible)
-func BroadcastDonation(id, donorName string, amount int, message string, durationMs int) {
+func BroadcastDonation(id, donorName string, amount int, message string, durationMs int, paymentMethod, paymentType, plisioCurrency, plisioAmount string) {
 	msg := DonationMessage{
-		ID:        id,
-		Type:      "donation",
-		DonorName: donorName,
-		Amount:    amount,
-		Message:   message,
-		Duration:  durationMs,
+		ID:             id,
+		Type:           "donation",
+		DonorName:      donorName,
+		Amount:         amount,
+		Message:        message,
+		Duration:       durationMs,
+		PaymentMethod:  paymentMethod,
+		PaymentType:    paymentType,
+		PlisioCurrency: plisioCurrency,
+		PlisioAmount:   plisioAmount,
 	}
 
 	data, err := json.Marshal(msg)
@@ -376,14 +380,18 @@ func BroadcastPaymentStatus(payment *Payment) {
 }
 
 // BroadcastText sends a text-only donation message to all connected clients
-func BroadcastText(id, donorName string, amount int, message string, durationMs int) {
+func BroadcastText(id, donorName string, amount int, message string, durationMs int, paymentMethod, paymentType, plisioCurrency, plisioAmount string) {
 	msg := DonationMessage{
-		ID:        id,
-		Type:      "text",
-		DonorName: donorName,
-		Amount:    amount,
-		Message:   message,
-		Duration:  durationMs,
+		ID:             id,
+		Type:           "text",
+		DonorName:      donorName,
+		Amount:         amount,
+		Message:        message,
+		Duration:       durationMs,
+		PaymentMethod:  paymentMethod,
+		PaymentType:    paymentType,
+		PlisioCurrency: plisioCurrency,
+		PlisioAmount:   plisioAmount,
 	}
 
 	data, err := json.Marshal(msg)

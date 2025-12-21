@@ -37,14 +37,18 @@ func calculateDisplayDuration(amount int) time.Duration {
 
 // DonationJob represents a donation job in the queue
 type DonationJob struct {
-	ID        string `json:"id"`   // UUID for tracking this donation
-	Type      string `json:"type"` // "gif" or "text"
-	MediaURL  string `json:"mediaUrl,omitempty"`
-	MediaType string `json:"mediaType,omitempty"`
-	StartTime int    `json:"startTime,omitempty"`
-	DonorName string `json:"donorName"`
-	Amount    int    `json:"amount"`
-	Message   string `json:"message,omitempty"`
+	ID             string `json:"id"`   // UUID for tracking this donation
+	Type           string `json:"type"` // "gif" or "text"
+	MediaURL       string `json:"mediaUrl,omitempty"`
+	MediaType      string `json:"mediaType,omitempty"`
+	StartTime      int    `json:"startTime,omitempty"`
+	DonorName      string `json:"donorName"`
+	Amount         int    `json:"amount"`
+	Message        string `json:"message,omitempty"`
+	PaymentMethod  string `json:"paymentMethod,omitempty"`  // crypto, bank_transfer, gopay, etc
+	PaymentType    string `json:"paymentType,omitempty"`    // plisio, midtrans
+	PlisioCurrency string `json:"plisioCurrency,omitempty"` // BTC, ETH, SOL, etc
+	PlisioAmount   string `json:"plisioAmount,omitempty"`   // Crypto amount (e.g., "0.001", "0.5")
 }
 
 var (
@@ -164,10 +168,10 @@ func processDonationDirectly(job DonationJob) error {
 			time.Sleep(500 * time.Millisecond)
 		}
 		// Then broadcast donation with duration
-		BroadcastDonation(job.ID, job.DonorName, job.Amount, job.Message, durationMs)
+		BroadcastDonation(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
 	} else if job.Type == "text" {
 		// Broadcast text donation with duration
-		BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs)
+		BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
 	} else {
 		log.Printf("⚠️  Unknown donation type (direct): %s (ID: %s)", job.Type, job.ID)
 	}
@@ -253,10 +257,10 @@ func StartDonationWorker() {
 					time.Sleep(500 * time.Millisecond)
 				}
 				// Then broadcast donation with duration
-				BroadcastDonation(job.ID, job.DonorName, job.Amount, job.Message, durationMs)
+				BroadcastDonation(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
 			} else if job.Type == "text" {
 				// Broadcast text donation with duration
-				BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs)
+				BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
 			} else {
 				log.Printf("⚠️  Unknown donation type: %s (ID: %s)", job.Type, job.ID)
 			}

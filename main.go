@@ -471,7 +471,7 @@ func main() {
 			}
 			BroadcastMedia(donationID, mediaURL, mediaType, startTimeSeconds)
 			time.Sleep(500 * time.Millisecond)
-			BroadcastDonation(donationID, req.DonorName, req.Amount, req.Message, durationMs)
+			BroadcastDonation(donationID, req.DonorName, req.Amount, req.Message, durationMs, "", "", "", "")
 		}
 
 		c.JSON(200, gin.H{
@@ -658,7 +658,7 @@ func main() {
 			if durationMs < 10000 {
 				durationMs = 10000
 			}
-			BroadcastText(donationID, req.DonorName, req.Amount, req.Message, durationMs)
+			BroadcastText(donationID, req.DonorName, req.Amount, req.Message, durationMs, "", "", "", "")
 		}
 
 		c.JSON(200, gin.H{

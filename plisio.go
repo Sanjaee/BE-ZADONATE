@@ -626,14 +626,29 @@ func UpdatePaymentStatusFromPlisio(callbackData PlisioCallbackData) error {
 
 			// Create donation job and publish to queue
 			job := DonationJob{
-				ID:        historyID,
-				Type:      payment.DonationType,
-				MediaURL:  payment.MediaURL,
-				MediaType: payment.MediaType,
-				StartTime: payment.StartTime,
-				DonorName: payment.DonorName,
-				Amount:    payment.Amount,
-				Message:   payment.Message,
+				ID:            historyID,
+				Type:          payment.DonationType,
+				MediaURL:      payment.MediaURL,
+				MediaType:     payment.MediaType,
+				StartTime:     payment.StartTime,
+				DonorName:     payment.DonorName,
+				Amount:        payment.Amount,
+				Message:       payment.Message,
+				PaymentMethod: payment.PaymentMethod,
+				PaymentType:   payment.PaymentType,
+			}
+
+			// Include crypto info if payment is crypto
+			if payment.PaymentMethod == "crypto" && payment.PaymentType == "plisio" {
+				if payment.PlisioCurrency != "" {
+					job.PlisioCurrency = payment.PlisioCurrency
+				}
+				if payment.PlisioSourceAmount > 0 {
+					// Format amount with appropriate decimal places
+					job.PlisioAmount = fmt.Sprintf("%.8f", payment.PlisioSourceAmount)
+					// Remove trailing zeros
+					job.PlisioAmount = strings.TrimRight(strings.TrimRight(job.PlisioAmount, "0"), ".")
+				}
 			}
 
 			if err := PublishDonation(job); err != nil {
