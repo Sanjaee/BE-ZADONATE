@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -59,6 +60,11 @@ var (
 	isPaused        bool
 	pauseMutex      sync.RWMutex
 	pauseChan       chan bool // Channel to signal pause/resume
+	// Queue control
+	consumerTag     string // Store consumer tag for cancellation
+	workerStopped   bool   // Flag to stop worker
+	workerStopMutex sync.RWMutex
+	workerStopChan  chan struct{} // Channel to signal worker stop
 )
 
 // InitRabbitMQ initializes RabbitMQ connection and queue
@@ -107,11 +113,24 @@ func InitRabbitMQ() error {
 	// Initialize pause channel
 	pauseChan = make(chan bool, 1)
 
+	// Initialize worker stop channel
+	workerStopChan = make(chan struct{})
+
 	return nil
 }
 
 // PublishDonation publishes a donation job to the queue
 func PublishDonation(job DonationJob) error {
+	// Check if worker is stopped (queue is cleared)
+	workerStopMutex.RLock()
+	stopped := workerStopped
+	workerStopMutex.RUnlock()
+
+	if stopped {
+		log.Printf("⚠️  Queue is cleared, donation rejected: %s - %d (ID: %s)", job.DonorName, job.Amount, job.ID)
+		return fmt.Errorf("queue is cleared, donation rejected")
+	}
+
 	// Generate UUID if not provided
 	if job.ID == "" {
 		job.ID = uuid.New().String()
@@ -152,6 +171,16 @@ func PublishDonation(job DonationJob) error {
 // processDonationDirectly processes donation without queue (fallback when RabbitMQ unavailable)
 // Note: History is already created in payment.go, so we only need to broadcast
 func processDonationDirectly(job DonationJob) error {
+	// Check if worker is stopped (queue is cleared)
+	workerStopMutex.RLock()
+	stopped := workerStopped
+	workerStopMutex.RUnlock()
+
+	if stopped {
+		log.Printf("⚠️  Queue is cleared, donation rejected (direct): %s - %d (ID: %s)", job.DonorName, job.Amount, job.ID)
+		return fmt.Errorf("queue is cleared, donation rejected")
+	}
+
 	// Calculate display duration based on donation amount
 	waitDuration := calculateDisplayDuration(job.Amount)
 	durationMs := int(waitDuration.Milliseconds())
@@ -198,9 +227,12 @@ func StartDonationWorker() {
 		return
 	}
 
+	// Generate unique consumer tag
+	consumerTag = fmt.Sprintf("donation-worker-%d", time.Now().UnixNano())
+
 	msgs, err := rabbitmqChan.Consume(
 		donationQueueName, // queue
-		"",                // consumer
+		consumerTag,       // consumer tag (for cancellation)
 		false,             // auto-ack (manual ack for reliability)
 		false,             // exclusive
 		false,             // no-local
@@ -213,109 +245,150 @@ func StartDonationWorker() {
 		return
 	}
 
+	// Reset worker stopped flag
+	workerStopMutex.Lock()
+	workerStopped = false
+	workerStopMutex.Unlock()
+
 	log.Println("👷 Donation worker started, processing donations sequentially...")
 
 	go func() {
-		for msg := range msgs {
-			var job DonationJob
-			if err := json.Unmarshal(msg.Body, &job); err != nil {
-				log.Printf("❌ Error unmarshaling job: %v", err)
-				msg.Nack(false, false) // Reject and don't requeue
-				continue
+	workerLoop:
+		for {
+			// Check if worker should stop
+			workerStopMutex.RLock()
+			stopped := workerStopped
+			workerStopMutex.RUnlock()
+
+			if stopped {
+				log.Println("🛑 Worker stopped, no longer processing donations")
+				return
 			}
 
-			// Set current donation being processed
-			pauseMutex.Lock()
-			currentDonation = &job
-			isPaused = false
-			pauseMutex.Unlock()
-
-			// Calculate display duration based on donation amount
-			waitDuration := calculateDisplayDuration(job.Amount)
-			durationMs := int(waitDuration.Milliseconds())
-
-			// Save donation to history (only for gif and text)
-			if job.Type == "gif" || job.Type == "text" {
-				if err := SaveDonationHistory(job); err != nil {
-					log.Printf("⚠️  Failed to save donation history: %v", err)
-					// Continue processing even if history save fails
-				} else {
-					// Broadcast new history to WebSocket clients
-					history, err := GetDonationHistoryByID(job.ID)
-					if err == nil && history != nil {
-						BroadcastHistory(history)
-					}
+			select {
+			case msg, ok := <-msgs:
+				if !ok {
+					log.Println("📭 Message channel closed")
+					return
 				}
-			}
 
-			// Process the donation based on type
-			if job.Type == "gif" {
-				// Broadcast media first
-				if job.MediaURL != "" {
-					BroadcastMedia(job.ID, job.MediaURL, job.MediaType, job.StartTime)
-					// Small delay to ensure media is shown first
-					time.Sleep(500 * time.Millisecond)
+				// Double-check if worker should stop before processing
+				workerStopMutex.RLock()
+				stopped = workerStopped
+				workerStopMutex.RUnlock()
+
+				if stopped {
+					// Nack message and don't requeue
+					msg.Nack(false, false)
+					log.Println("🛑 Worker stopped, rejecting message")
+					return
 				}
-				// Then broadcast donation with duration
-				BroadcastDonation(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
-			} else if job.Type == "text" {
-				// Broadcast text donation with duration
-				BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
-			} else {
-				log.Printf("⚠️  Unknown donation type: %s (ID: %s)", job.Type, job.ID)
-			}
 
-			// Wait for donation to complete or be paused
-			checkInterval := 100 * time.Millisecond
-			startTime := time.Now()
-			elapsedBeforePause := time.Duration(0)
-			pauseStartTime := time.Time{}
+				var job DonationJob
+				if err := json.Unmarshal(msg.Body, &job); err != nil {
+					log.Printf("❌ Error unmarshaling job: %v", err)
+					msg.Nack(false, false) // Reject and don't requeue
+					// Continue to next iteration (process next message)
+					continue workerLoop
+				}
 
-			for {
-				pauseMutex.RLock()
-				paused := isPaused
-				pauseMutex.RUnlock()
+				// Set current donation being processed
+				pauseMutex.Lock()
+				currentDonation = &job
+				isPaused = false
+				pauseMutex.Unlock()
 
-				if paused {
-					// Paused - record elapsed time before pause
-					if pauseStartTime.IsZero() {
-						elapsedBeforePause = time.Since(startTime)
-						pauseStartTime = time.Now()
-					}
-					// Wait for resume signal
-					select {
-					case <-pauseChan:
-						// Resume signal received
-						if !pauseStartTime.IsZero() {
-							// Reset start time to continue from where we paused
-							startTime = time.Now().Add(-elapsedBeforePause)
-							pauseStartTime = time.Time{}
+				// Calculate display duration based on donation amount
+				waitDuration := calculateDisplayDuration(job.Amount)
+				durationMs := int(waitDuration.Milliseconds())
+
+				// Save donation to history (only for gif and text)
+				if job.Type == "gif" || job.Type == "text" {
+					if err := SaveDonationHistory(job); err != nil {
+						log.Printf("⚠️  Failed to save donation history: %v", err)
+						// Continue processing even if history save fails
+					} else {
+						// Broadcast new history to WebSocket clients
+						history, err := GetDonationHistoryByID(job.ID)
+						if err == nil && history != nil {
+							BroadcastHistory(history)
 						}
-					case <-time.After(checkInterval):
-						// Timeout to check pause state again
-						continue
 					}
-				} else {
-					// Not paused - check if we've reached the duration
-					elapsed := time.Since(startTime)
-					if elapsed >= waitDuration {
-						break
-					}
-					time.Sleep(checkInterval)
 				}
+
+				// Process the donation based on type
+				if job.Type == "gif" {
+					// Broadcast media first
+					if job.MediaURL != "" {
+						BroadcastMedia(job.ID, job.MediaURL, job.MediaType, job.StartTime)
+						// Small delay to ensure media is shown first
+						time.Sleep(500 * time.Millisecond)
+					}
+					// Then broadcast donation with duration
+					BroadcastDonation(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
+				} else if job.Type == "text" {
+					// Broadcast text donation with duration
+					BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
+				} else {
+					log.Printf("⚠️  Unknown donation type: %s (ID: %s)", job.Type, job.ID)
+				}
+
+				// Wait for donation to complete or be paused
+				checkInterval := 100 * time.Millisecond
+				startTime := time.Now()
+				elapsedBeforePause := time.Duration(0)
+				pauseStartTime := time.Time{}
+
+				for {
+					pauseMutex.RLock()
+					paused := isPaused
+					pauseMutex.RUnlock()
+
+					if paused {
+						// Paused - record elapsed time before pause
+						if pauseStartTime.IsZero() {
+							elapsedBeforePause = time.Since(startTime)
+							pauseStartTime = time.Now()
+						}
+						// Wait for resume signal
+						select {
+						case <-pauseChan:
+							// Resume signal received
+							if !pauseStartTime.IsZero() {
+								// Reset start time to continue from where we paused
+								startTime = time.Now().Add(-elapsedBeforePause)
+								pauseStartTime = time.Time{}
+							}
+						case <-time.After(checkInterval):
+							// Timeout to check pause state again
+							continue
+						}
+					} else {
+						// Not paused - check if we've reached the duration
+						elapsed := time.Since(startTime)
+						if elapsed >= waitDuration {
+							break
+						}
+						time.Sleep(checkInterval)
+					}
+				}
+
+				// Acknowledge message after successful processing
+				msg.Ack(false)
+
+				// Clear current donation
+				pauseMutex.Lock()
+				currentDonation = nil
+				isPaused = false
+				pauseMutex.Unlock()
+
+				// Wait a bit before processing next donation (to ensure sequential display)
+				time.Sleep(1 * time.Second)
+
+			case <-workerStopChan:
+				log.Println("🛑 Worker stop signal received")
+				return
 			}
-
-			// Acknowledge message after successful processing
-			msg.Ack(false)
-
-			// Clear current donation
-			pauseMutex.Lock()
-			currentDonation = nil
-			isPaused = false
-			pauseMutex.Unlock()
-
-			// Wait a bit before processing next donation (to ensure sequential display)
-			time.Sleep(1 * time.Second)
 		}
 	}()
 }
@@ -387,10 +460,31 @@ func GetCurrentDonationStatus() (bool, *DonationJob) {
 	return isPaused, &donationCopy
 }
 
-// ClearQueue removes all messages from the donation queue
+// ClearQueue removes all messages from the donation queue and stops worker
 func ClearQueue() error {
+	// Stop worker first to prevent processing new messages
+	workerStopMutex.Lock()
+	workerStopped = true
+	workerStopMutex.Unlock()
+
+	// Signal worker to stop
+	select {
+	case workerStopChan <- struct{}{}:
+	default:
+	}
+
+	// Cancel consumer to stop receiving new messages
+	if rabbitmqChan != nil && consumerTag != "" {
+		if err := rabbitmqChan.Cancel(consumerTag, false); err != nil {
+			log.Printf("⚠️  Error canceling consumer: %v", err)
+		} else {
+			log.Printf("🛑 Consumer '%s' canceled", consumerTag)
+		}
+	}
+
 	if rabbitmqChan == nil {
-		return nil // RabbitMQ not available
+		log.Println("🗑️  Queue cleared (RabbitMQ not available)")
+		return nil
 	}
 
 	// Purge all messages from the queue
@@ -401,6 +495,16 @@ func ClearQueue() error {
 	}
 
 	log.Println("🗑️  All messages cleared from donation queue")
+
+	// Broadcast clear queue message to all WebSocket clients
+	BroadcastClearQueue()
+
+	// Restart worker after a short delay
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		StartDonationWorker()
+	}()
+
 	return nil
 }
 

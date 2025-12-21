@@ -402,3 +402,25 @@ func BroadcastText(id, donorName string, amount int, message string, durationMs 
 
 	hub.broadcast <- data
 }
+
+// BroadcastClearQueue sends a clear queue message to all connected clients
+func BroadcastClearQueue() {
+	msg := DonationMessage{
+		Type: "clear_queue",
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Error marshaling clear queue message: %v", err)
+		return
+	}
+
+	// Clear pending messages
+	hub.mu.Lock()
+	hub.pendingDonation = nil
+	hub.pendingMedia = nil
+	hub.mu.Unlock()
+
+	hub.broadcast <- data
+	log.Println("📢 Clear queue message broadcasted to all WebSocket clients")
+}
