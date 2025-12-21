@@ -152,7 +152,7 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 	// Add payment method specific config
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3000"
+		frontendURL = "https://fe-zadonate.vercel.app"
 	}
 
 	switch req.PaymentMethod {

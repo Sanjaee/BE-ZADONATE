@@ -261,7 +261,7 @@ func main() {
 		// Get allowed frontend URL from environment variable
 		frontendURL := os.Getenv("FRONTEND_URL")
 		if frontendURL == "" {
-			frontendURL = "http://localhost:3000"
+			frontendURL = "https://fe-zadonate.vercel.app"
 		}
 
 		// Check if request has Origin or Referer header (indicates it's from frontend)
