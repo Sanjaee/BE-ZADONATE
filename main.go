@@ -148,9 +148,9 @@ func main() {
 		defer func() {
 			if err := recover(); err != nil {
 				log.Printf("❌ Panic recovered: %v", err)
-				c.JSON(500, gin.H{
+				c.JSON(501, gin.H{
 					"success": false,
-					"error":   "Internal server error",
+					"error":   "Something went wrong",
 				})
 				c.Abort()
 			}
