@@ -289,11 +289,8 @@ func CreatePlisioInvoice(req PlisioCreateInvoiceRequest) (*Payment, *PlisioInvoi
 	callbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true", backendURL)
 	params.Add("callback_url", callbackURL)
 
-	// Success and fail callback URLs
-	successCallbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true&type=success", backendURL)
-	failCallbackURL := fmt.Sprintf("%s/payment/plisio/webhook?json=true&type=fail", backendURL)
-	params.Add("success_callback_url", successCallbackURL)
-	params.Add("fail_callback_url", failCallbackURL)
+	// Note: Only using callback_url to avoid duplicate webhook calls
+	// Plisio will call callback_url for all status changes (pending, completed, expired, etc.)
 
 	// Expiry time (default 24 hours = 1440 minutes)
 	if req.ExpireMin == 0 {
@@ -531,6 +528,22 @@ func UpdatePaymentStatusFromPlisio(callbackData PlisioCallbackData) error {
 		} else {
 			return fmt.Errorf("payment not found for order_number: %s", callbackData.OrderNumber)
 		}
+	}
+
+	// Idempotency check: If payment is already in the same status and it's SUCCESS,
+	// check if donation history already exists to prevent duplicate processing
+	var existingHistory DonationHistory
+	historyExists := db.Where("payment_id = ?", payment.ID).First(&existingHistory).Error == nil
+	isDuplicate := payment.Status == paymentStatus && paymentStatus == PaymentStatusSuccess && historyExists
+
+	if isDuplicate {
+		// History already exists, this is a duplicate webhook call
+		log.Printf("ℹ️  Duplicate webhook detected for payment %s (order: %s, txn: %s, status: %s). History already exists, skipping donation processing.",
+			payment.ID, callbackData.OrderNumber, callbackData.TxnID, callbackData.Status)
+		// Still update the response field for tracking, but skip donation processing
+		callbackJSON, _ := json.Marshal(callbackData)
+		db.Model(&payment).Update("midtrans_response", string(callbackJSON))
+		return nil
 	}
 
 	// Parse expiry time if available
