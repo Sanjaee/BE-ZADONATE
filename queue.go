@@ -203,6 +203,34 @@ func processDonationDirectly(job DonationJob) error {
 		BroadcastText(job.ID, job.DonorName, job.Amount, job.Message, durationMs, job.PaymentMethod, job.PaymentType, job.PlisioCurrency, job.PlisioAmount)
 	} else {
 		log.Printf("⚠️  Unknown donation type (direct): %s (ID: %s)", job.Type, job.ID)
+		return nil
+	}
+
+	// Wait for donation duration to complete (server-side timing)
+	// This ensures donations run even if no browser is open
+	checkInterval := 100 * time.Millisecond
+	startTime := time.Now()
+
+	for {
+		// Check if worker is stopped (queue cleared)
+		workerStopMutex.RLock()
+		stopped := workerStopped
+		workerStopMutex.RUnlock()
+
+		if stopped {
+			log.Printf("⚠️  Queue cleared during donation wait, stopping donation: %s (ID: %s)", job.DonorName, job.ID)
+			BroadcastVisibility(job.ID, false)
+			return fmt.Errorf("queue cleared, donation stopped")
+		}
+
+		elapsed := time.Since(startTime)
+		if elapsed >= waitDuration {
+			// Duration completed - broadcast end message to stop donation on frontend
+			log.Printf("⏰ Donation duration completed (direct) for %s (ID: %s), sending end signal", job.DonorName, job.ID)
+			BroadcastVisibility(job.ID, false) // Hide donation when duration ends
+			break
+		}
+		time.Sleep(checkInterval)
 	}
 
 	return nil
@@ -367,6 +395,9 @@ func StartDonationWorker() {
 						// Not paused - check if we've reached the duration
 						elapsed := time.Since(startTime)
 						if elapsed >= waitDuration {
+							// Duration completed - broadcast end message to stop donation on frontend
+							log.Printf("⏰ Donation duration completed for %s (ID: %s), sending end signal", job.DonorName, job.ID)
+							BroadcastVisibility(job.ID, false) // Hide donation when duration ends
 							break
 						}
 						time.Sleep(checkInterval)
@@ -482,28 +513,41 @@ func ClearQueue() error {
 		}
 	}
 
-	if rabbitmqChan == nil {
+	// Purge all messages from the queue (if RabbitMQ is available)
+	if rabbitmqChan != nil {
+		_, err := rabbitmqChan.QueuePurge(donationQueueName, false)
+		if err != nil {
+			log.Printf("Error purging queue: %v", err)
+			// Continue anyway to broadcast clear message
+		} else {
+			log.Println("🗑️  All messages cleared from donation queue")
+		}
+	} else {
 		log.Println("🗑️  Queue cleared (RabbitMQ not available)")
-		return nil
 	}
 
-	// Purge all messages from the queue
-	_, err := rabbitmqChan.QueuePurge(donationQueueName, false)
-	if err != nil {
-		log.Printf("Error purging queue: %v", err)
-		return err
-	}
+	// Reset current donation state
+	ResetCurrentDonation()
 
-	log.Println("🗑️  All messages cleared from donation queue")
-
-	// Broadcast clear queue message to all WebSocket clients
+	// Broadcast clear queue message to all WebSocket clients (ALWAYS, even if RabbitMQ not available)
 	BroadcastClearQueue()
 
-	// Restart worker after a short delay
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		StartDonationWorker()
-	}()
+	// Restart worker after a short delay (if RabbitMQ is available)
+	if rabbitmqChan != nil {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			StartDonationWorker()
+		}()
+	} else {
+		// Reset worker stopped flag so new donations can be processed directly
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			workerStopMutex.Lock()
+			workerStopped = false
+			workerStopMutex.Unlock()
+			log.Println("✅ Worker state reset (RabbitMQ not available, direct processing enabled)")
+		}()
+	}
 
 	return nil
 }
