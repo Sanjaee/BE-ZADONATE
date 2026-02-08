@@ -368,6 +368,36 @@ func main() {
 		c.Next()
 	}
 
+	// Test media share (dummy data, no auth - untuk tombol tes di overlay)
+	r.POST("/api/test-media-share", func(c *gin.Context) {
+		const (
+			dummyAmount    = 1000
+			dummyMediaURL  = "https://youtu.be/49Djr_CV2ZM?si=IsZxPfRh3tu5F52I"
+			dummyDonorName = "Test Donor"
+			dummyMessage   = "Tes media share"
+		)
+		job := DonationJob{
+			Type:      "gif",
+			MediaURL:  dummyMediaURL,
+			MediaType: "youtube",
+			StartTime: 0,
+			DonorName: dummyDonorName,
+			Amount:    dummyAmount,
+			Message:   dummyMessage,
+		}
+		if err := PublishDonation(job); err != nil {
+			c.JSON(500, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{
+			"success": true,
+			"message": "Test media share queued",
+			"donorName": dummyDonorName,
+			"amount": dummyAmount,
+			"mediaUrl": dummyMediaURL,
+		})
+	})
+
 	// Create a group for /hit endpoints with admin auth middleware
 	hitGroup := r.Group("/hit")
 	hitGroup.Use(adminAuthMiddleware)
