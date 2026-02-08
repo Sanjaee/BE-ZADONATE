@@ -298,6 +298,19 @@ Import file `OBS_Hit_API.postman_collection.json` ke Postman untuk testing yang 
 - Windows/Mac: Pastikan menggunakan `host.docker.internal:4455`
 - Linux: Gunakan IP host machine atau `--network host`
 
+### Error: "password authentication failed for user \"admin\""
+PostgreSQL hanya meng-set user/password saat volume **pertama kali** dibuat. Jika volume sudah ada dari konfigurasi lama, kredensial di `docker-compose` tidak dipakai.
+
+**Perbaikan:** Hapus volume Postgres lalu jalankan ulang (data di DB akan hilang):
+
+```bash
+cd be
+docker compose down -v
+docker compose up --build -d
+```
+
+Setelah itu koneksi `admin`/`admin` ke `donation_db` akan berfungsi.
+
 ## 📝 Notes
 
 - API menggunakan **Gin framework** untuk HTTP server

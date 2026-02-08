@@ -14,21 +14,26 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// remainingMs is sent to newly connected clients so they show current donation with correct remaining time (no "replay" from start).
+const remainingMsKey = "remainingMs"
+
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins for development
 	},
 }
 
-// Hub maintains the set of active clients and broadcasts messages to the clients
+// Hub maintains the set of active clients and broadcasts messages to the clients.
+// pendingDonation/pendingMedia are only "currently playing"; cleared when donation ends so new clients don't see old donation.
 type Hub struct {
-	clients         map[*Client]bool
-	broadcast       chan []byte
-	register        chan *Client
-	unregister      chan *Client
-	mu              sync.RWMutex
-	pendingDonation []byte // Store last donation message for reconnection
-	pendingMedia    []byte // Store last media message for reconnection
+	clients              map[*Client]bool
+	broadcast            chan []byte
+	register             chan *Client
+	unregister           chan *Client
+	mu                   sync.RWMutex
+	pendingDonation      []byte    // Current donation message (cleared when visibility false)
+	pendingMedia         []byte    // Current media message (cleared when visibility false)
+	currentDisplayEndsAt time.Time // When current donation display ends; zero = nothing showing
 }
 
 // Client is a middleman between the websocket connection and the hub
@@ -82,19 +87,27 @@ func (h *Hub) run() {
 			h.mu.Lock()
 			h.clients[client] = true
 			count := len(h.clients)
-			// Send pending messages to newly connected client
-			if h.pendingDonation != nil {
-				select {
-				case client.send <- h.pendingDonation:
-				default:
-					// Channel full, skip
-				}
-			}
-			if h.pendingMedia != nil {
-				select {
-				case client.send <- h.pendingMedia:
-				default:
-					// Channel full, skip
+			// Only send current donation/media if one is still playing (display runs in background; web only displays)
+			now := time.Now()
+			if !h.currentDisplayEndsAt.IsZero() && h.currentDisplayEndsAt.After(now) && (h.pendingDonation != nil || h.pendingMedia != nil) {
+				remainingMs := int(time.Until(h.currentDisplayEndsAt).Milliseconds())
+				if remainingMs > 0 {
+					// Send media first, then donation with remainingMs so FE shows correct remaining time
+					if h.pendingMedia != nil {
+						select {
+						case client.send <- h.pendingMedia:
+						default:
+						}
+					}
+					if h.pendingDonation != nil {
+						donationWithRemaining := injectRemainingMs(h.pendingDonation, remainingMs)
+						if donationWithRemaining != nil {
+							select {
+							case client.send <- donationWithRemaining:
+							default:
+							}
+						}
+					}
 				}
 			}
 			h.mu.Unlock()
@@ -118,22 +131,29 @@ func (h *Hub) run() {
 			}
 			h.mu.RUnlock()
 
-			// Parse message to determine type and store if needed
+			// Parse message to determine type and store if needed (only "currently playing" state)
 			var msgType string
 			var msgMap map[string]interface{}
 			if err := json.Unmarshal(message, &msgMap); err == nil {
 				if t, ok := msgMap["type"].(string); ok {
 					msgType = t
-					// Store donation and media messages for reconnection
+					h.mu.Lock()
 					if msgType == "donation" || msgType == "text" {
-						h.mu.Lock()
 						h.pendingDonation = message
-						h.mu.Unlock()
+						// Track when this display ends so new clients get remaining time only
+						if dur, ok := msgMap["duration"].(float64); ok && dur > 0 {
+							h.currentDisplayEndsAt = time.Now().Add(time.Duration(dur) * time.Millisecond)
+						}
 					} else if msgType == "media" {
-						h.mu.Lock()
 						h.pendingMedia = message
-						h.mu.Unlock()
+					} else if msgType == "visibility" {
+						if vis, _ := msgMap["visible"].(bool); !vis {
+							h.pendingDonation = nil
+							h.pendingMedia = nil
+							h.currentDisplayEndsAt = time.Time{}
+						}
 					}
+					h.mu.Unlock()
 				}
 			}
 
@@ -152,6 +172,20 @@ func (h *Hub) run() {
 			}
 		}
 	}
+}
+
+// injectRemainingMs clones the donation message and adds remainingMs for newly connected clients
+func injectRemainingMs(donationMsg []byte, remainingMs int) []byte {
+	var m map[string]interface{}
+	if err := json.Unmarshal(donationMsg, &m); err != nil {
+		return nil
+	}
+	m[remainingMsKey] = remainingMs
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	return out
 }
 
 // readPump pumps messages from the websocket connection to the hub
