@@ -49,6 +49,11 @@ type Payment struct {
 	BankType              string        `gorm:"type:varchar(20)" json:"bankType,omitempty"`
 	QRCodeURL             string        `gorm:"type:text" json:"qrCodeUrl,omitempty"`
 	ExpiryTime            *time.Time    `gorm:"type:timestamp" json:"expiryTime,omitempty"`
+	// Credit card (Midtrans) - redirect_url for 3DS, masked_card for display
+	RedirectURL  string `gorm:"type:text" json:"redirectUrl,omitempty"`
+	MaskedCard   string `gorm:"type:varchar(30)" json:"maskedCard,omitempty"`
+	CardType     string `gorm:"type:varchar(20)" json:"cardType,omitempty"`
+	SavedTokenID string `gorm:"type:varchar(100)" json:"savedTokenId,omitempty"`
 	// Plisio crypto payment fields
 	PlisioTxnID           string    `gorm:"type:varchar(100);index" json:"plisioTxnId,omitempty"`
 	PlisioInvoiceURL      string    `gorm:"type:text" json:"plisioInvoiceUrl,omitempty"`

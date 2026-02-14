@@ -58,9 +58,12 @@ type MidtransGopay struct {
 	CallbackURL    string `json:"callback_url"`
 }
 
+// MidtransCreditCard for charge request. See: https://docs.midtrans.com/reference/charge-transactions-on-card
 type MidtransCreditCard struct {
-	Secure         bool `json:"secure"`
-	Authentication bool `json:"authentication"`
+	TokenID        string `json:"token_id"`                   // From Snap/frontend (required)
+	Authentication bool   `json:"authentication"`             // 3D Secure
+	Bank           string `json:"bank,omitempty"`              // Optional acquiring bank
+	SaveTokenID    bool   `json:"save_token_id,omitempty"`     // One Click / save card
 }
 
 // MidtransChargeResponse represents Midtrans charge response
@@ -76,6 +79,12 @@ type MidtransChargeResponse struct {
 	VANumbers         []MidtransVANumber `json:"va_numbers,omitempty"`
 	Actions           []MidtransAction   `json:"actions,omitempty"`
 	ExpiryTime        string             `json:"expiry_time,omitempty"`
+	// Credit card response
+	RedirectURL  string `json:"redirect_url,omitempty"`   // 3DS redirect URL
+	MaskedCard   string `json:"masked_card,omitempty"`
+	Bank         string `json:"bank,omitempty"`
+	CardType     string `json:"card_type,omitempty"`
+	SavedTokenID string `json:"saved_token_id,omitempty"`
 }
 
 type MidtransVANumber struct {
@@ -101,7 +110,10 @@ type CreatePaymentRequest struct {
 	Message       string `json:"message,omitempty"`
 	Notes         string `json:"notes,omitempty"`
 	PaymentMethod string `json:"paymentMethod" binding:"required,oneof=bank_transfer gopay credit_card qris"`
-	Bank          string `json:"bank,omitempty"` // bca, bni, mandiri, etc
+	Bank          string `json:"bank,omitempty"` // bca, bni, mandiri, etc (bank_transfer or card acquiring bank)
+	// Credit card: token from Snap JS / frontend, required for credit_card
+	CardTokenID string `json:"cardTokenId,omitempty"`
+	SaveCard    bool   `json:"saveCard,omitempty"`
 }
 
 // mapMidtransStatusToPaymentStatus maps Midtrans status to PaymentStatus
@@ -176,9 +188,16 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 			CallbackURL:    fmt.Sprintf("%s/payment/callback", frontendURL),
 		}
 	case "credit_card":
+		if req.CardTokenID == "" {
+			return nil, fmt.Errorf("cardTokenId is required for credit card payment (get token from Snap JS on frontend)")
+		}
 		chargeData.CreditCard = &MidtransCreditCard{
-			Secure:         true,
-			Authentication: true,
+			TokenID:        req.CardTokenID,
+			Authentication: true, // 3D Secure
+			SaveTokenID:    req.SaveCard,
+		}
+		if req.Bank != "" {
+			chargeData.CreditCard.Bank = req.Bank
 		}
 	}
 
@@ -287,6 +306,25 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 		}
 	}
 
+	// Credit card: redirect_url (3DS), masked_card, card_type, saved_token_id
+	if req.PaymentMethod == "credit_card" {
+		if midtransResp.RedirectURL != "" {
+			payment.RedirectURL = midtransResp.RedirectURL
+		}
+		if midtransResp.MaskedCard != "" {
+			payment.MaskedCard = midtransResp.MaskedCard
+		}
+		if midtransResp.CardType != "" {
+			payment.CardType = midtransResp.CardType
+		}
+		if midtransResp.SavedTokenID != "" {
+			payment.SavedTokenID = midtransResp.SavedTokenID
+		}
+		if midtransResp.Bank != "" {
+			bankType = midtransResp.Bank
+		}
+	}
+
 	updateData := map[string]interface{}{
 		"midtrans_transaction_id": midtransResp.TransactionID,
 		"status":                  mapMidtransStatusToPaymentStatus(midtransResp.TransactionStatus),
@@ -296,6 +334,10 @@ func CreatePayment(req CreatePaymentRequest) (*Payment, error) {
 		"bank_type":               bankType,
 		"qr_code_url":             qrCodeURL,
 		"expiry_time":             expiryTime,
+		"redirect_url":            payment.RedirectURL,
+		"masked_card":             payment.MaskedCard,
+		"card_type":               payment.CardType,
+		"saved_token_id":          payment.SavedTokenID,
 		"updated_at":              time.Now(),
 	}
 

@@ -713,6 +713,13 @@ func main() {
 			})
 			return
 		}
+		if req.PaymentMethod == "credit_card" && req.CardTokenID == "" {
+			c.JSON(400, gin.H{
+				"success": false,
+				"error":   "cardTokenId is required for credit card payment (get token from Midtrans Snap JS on frontend)",
+			})
+			return
+		}
 
 		payment, err := CreatePayment(req)
 		if err != nil {
@@ -888,6 +895,38 @@ func main() {
 			"success": true,
 			"message": "Webhook processed",
 		})
+	})
+
+	// Konfirmasi 3DS: frontend mengirim response 3DS (onSuccess) agar status langsung SUCCESS tanpa menunggu webhook
+	r.POST("/payment/confirm-3ds", func(c *gin.Context) {
+		var payload map[string]interface{}
+		if err := c.ShouldBindJSON(&payload); err != nil {
+			c.JSON(400, gin.H{"success": false, "error": "Invalid body"})
+			return
+		}
+		orderID, _ := payload["order_id"].(string)
+		if orderID == "" {
+			c.JSON(400, gin.H{"success": false, "error": "Missing order_id"})
+			return
+		}
+		transactionStatus, _ := payload["transaction_status"].(string)
+		transactionID, _ := payload["transaction_id"].(string)
+		var vaNumber, bankType, qrCodeURL string
+		if vaNumbers, ok := payload["va_numbers"].([]interface{}); ok && len(vaNumbers) > 0 {
+			if va, ok := vaNumbers[0].(map[string]interface{}); ok {
+				vaNumber, _ = va["va_number"].(string)
+				bankType, _ = va["bank"].(string)
+			}
+		}
+		if bank, ok := payload["bank"].(string); ok && bank != "" {
+			bankType = bank
+		}
+		bodyJSON, _ := json.Marshal(payload)
+		if err := UpdatePaymentStatus(orderID, transactionStatus, transactionID, vaNumber, bankType, qrCodeURL, nil, string(bodyJSON)); err != nil {
+			c.JSON(500, gin.H{"success": false, "error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"success": true, "message": "3DS confirmed, payment updated"})
 	})
 
 	// ========== PLISIO CRYPTO PAYMENT ENDPOINTS ==========
